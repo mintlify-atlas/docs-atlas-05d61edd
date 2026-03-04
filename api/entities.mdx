@@ -1,0 +1,381 @@
+---
+title: Entity API
+description: Entity trait and methods for interacting with game entities
+---
+
+## Overview
+
+The entity system provides a hierarchy of traits and structs for working with entities in Pumpkin:
+- `Entity` - Base entity struct with position, rotation, velocity, etc.
+- `EntityBase` - Trait for all entity types
+- `LivingEntity` - Entities with health, effects, combat
+- `Player` - Player-specific functionality
+
+## EntityBase Trait
+
+```rust
+pub trait EntityBase: Send + Sync + NBTStorage {
+    fn tick<'a>(
+        &'a self,
+        caller: Arc<dyn EntityBase>,
+        server: &'a Server,
+    ) -> EntityBaseFuture<'a, ()>;
+    
+    fn teleport(
+        self: Arc<Self>,
+        position: Vector3<f64>,
+        yaw: Option<f32>,
+        pitch: Option<f32>,
+        world: Arc<World>,
+    ) -> TeleportFuture;
+    
+    fn damage<'a>(
+        &'a self,
+        caller: &'a dyn EntityBase,
+        amount: f32,
+        damage_type: DamageType,
+    ) -> EntityBaseFuture<'a, bool>;
+    
+    fn get_entity(&self) -> &Entity;
+    fn get_living_entity(&self) -> Option<&LivingEntity>;
+    fn get_player(&self) -> Option<&Player>;
+}
+```
+
+### tick
+
+Called every game tick for this entity.
+
+<ParamField path="caller" type="Arc<dyn EntityBase>" required>
+  Reference to the entity being ticked
+</ParamField>
+
+<ParamField path="server" type="&Server" required>
+  Server instance
+</ParamField>
+
+### teleport
+
+Teleports the entity to a new position and/or world.
+
+<ParamField path="position" type="Vector3<f64>" required>
+  Target position
+</ParamField>
+
+<ParamField path="yaw" type="Option<f32>">
+  Optional new yaw rotation
+</ParamField>
+
+<ParamField path="pitch" type="Option<f32>">
+  Optional new pitch rotation
+</ParamField>
+
+<ParamField path="world" type="Arc<World>" required>
+  Target world (can be same or different dimension)
+</ParamField>
+
+**Example:**
+```rust
+entity.clone().teleport(
+    Vector3::new(100.0, 64.0, 100.0),
+    Some(90.0), // Face east
+    Some(0.0),  // Look straight ahead
+    world.clone()
+).await;
+```
+
+### damage
+
+Applies damage to the entity.
+
+<ParamField path="caller" type="&dyn EntityBase" required>
+  Entity receiving damage
+</ParamField>
+
+<ParamField path="amount" type="f32" required>
+  Damage amount
+</ParamField>
+
+<ParamField path="damage_type" type="DamageType" required>
+  Type of damage (GENERIC, FIRE, FALL, etc.)
+</ParamField>
+
+<ResponseField name="returns" type="bool">
+  `true` if damage was successful
+</ResponseField>
+
+**Example:**
+```rust
+use pumpkin_data::damage::DamageType;
+
+let damaged = entity.damage(entity.as_ref(), 5.0, DamageType::GENERIC).await;
+if damaged {
+    println!("Entity took damage!");
+}
+```
+
+## Entity Struct
+
+```rust
+pub struct Entity {
+    pub entity_id: i32,
+    pub entity_uuid: uuid::Uuid,
+    pub entity_type: &'static EntityType,
+    pub world: ArcSwap<World>,
+    pub pos: AtomicCell<Vector3<f64>>,
+    pub velocity: AtomicCell<Vector3<f64>>,
+    pub yaw: AtomicCell<f32>,
+    pub pitch: AtomicCell<f32>,
+    pub on_ground: AtomicBool,
+    pub bounding_box: AtomicCell<BoundingBox>,
+    // ... many more fields
+}
+```
+
+### Creating Entities
+
+```rust
+impl Entity {
+    pub fn new(
+        world: Arc<World>,
+        position: Vector3<f64>,
+        entity_type: &'static EntityType,
+    ) -> Self
+}
+```
+
+**Example:**
+```rust
+use pumpkin::entity::Entity;
+use pumpkin_data::entity::EntityType;
+use pumpkin_util::math::vector3::Vector3;
+
+let zombie = Entity::new(
+    world.clone(),
+    Vector3::new(0.0, 64.0, 0.0),
+    &EntityType::ZOMBIE
+);
+```
+
+### Position and Movement
+
+#### set_pos
+
+```rust
+pub fn set_pos(&self, new_position: Vector3<f64>)
+```
+
+Sets the entity's position and updates block/chunk coordinates.
+
+<ParamField path="new_position" type="Vector3<f64>" required>
+  New position
+</ParamField>
+
+#### move_pos
+
+```rust
+pub fn move_pos(&self, delta: Vector3<f64>)
+```
+
+Moves the entity by a delta.
+
+<ParamField path="delta" type="Vector3<f64>" required>
+  Position delta to add
+</ParamField>
+
+#### set_velocity
+
+```rust
+pub async fn set_velocity(&self, velocity: Vector3<f64>)
+```
+
+Sets the entity's velocity and broadcasts it.
+
+<ParamField path="velocity" type="Vector3<f64>" required>
+  New velocity vector
+</ParamField>
+
+#### add_velocity
+
+```rust
+pub async fn add_velocity(&self, velocity: Vector3<f64>)
+```
+
+Adds to the entity's current velocity.
+
+<ParamField path="velocity" type="Vector3<f64>" required>
+  Velocity to add
+</ParamField>
+
+### Rotation
+
+#### look_at
+
+```rust
+pub fn look_at(&self, target: Vector3<f64>)
+```
+
+Makes the entity look at a target position.
+
+<ParamField path="target" type="Vector3<f64>" required>
+  Target position to look at
+</ParamField>
+
+#### rotation
+
+```rust
+pub fn rotation(&self) -> Vector3<f32>
+```
+
+Returns the entity's rotation as a direction vector.
+
+<ResponseField name="returns" type="Vector3<f32>">
+  Direction vector based on yaw and pitch
+</ResponseField>
+
+### Metadata
+
+#### send_meta_data
+
+```rust
+pub async fn send_meta_data(&self, metadata: &[Metadata])
+```
+
+Sends entity metadata updates to clients.
+
+<ParamField path="metadata" type="&[Metadata]" required>
+  Array of metadata entries
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin_data::meta_data_type::MetaDataType;
+use pumpkin_data::tracked_data::TrackedData;
+use pumpkin_protocol::java::client::play::Metadata;
+
+entity.send_meta_data(&[
+    Metadata::new(
+        TrackedData::DATA_CUSTOM_NAME,
+        MetaDataType::OPTIONAL_TEXT_COMPONENT,
+        Some(TextComponent::text("Custom Name"))
+    )
+]).await;
+```
+
+### Knockback
+
+#### apply_knockback
+
+```rust
+pub fn apply_knockback(&self, strength: f64, x: f64, z: f64)
+```
+
+Applies knockback to the entity.
+
+<ParamField path="strength" type="f64" required>
+  Knockback strength
+</ParamField>
+
+<ParamField path="x" type="f64" required>
+  X direction component
+</ParamField>
+
+<ParamField path="z" type="f64" required>
+  Z direction component
+</ParamField>
+
+## Entity Types
+
+```rust
+use pumpkin_data::entity::EntityType;
+
+// Common entity types
+EntityType::PLAYER
+EntityType::ZOMBIE
+EntityType::SKELETON
+EntityType::CREEPER
+EntityType::ITEM
+EntityType::ARROW
+EntityType::MINECART
+EntityType::BOAT
+// ... many more
+```
+
+## Example: Spawning and Moving Entity
+
+```rust
+use pumpkin::entity::Entity;
+use pumpkin_data::entity::EntityType;
+use pumpkin_util::math::vector3::Vector3;
+
+// Create zombie
+let zombie = Arc::new(Entity::new(
+    world.clone(),
+    Vector3::new(0.0, 64.0, 0.0),
+    &EntityType::ZOMBIE
+));
+
+// Spawn in world
+world.spawn_entity(zombie.clone()).await;
+
+// Make it look at player
+if let Some(player) = world.get_player_by_name("Player1") {
+    zombie.look_at(player.living_entity.entity.pos.load());
+}
+
+// Apply velocity upward
+zombie.set_velocity(Vector3::new(0.0, 0.5, 0.0)).await;
+
+// Apply knockback
+zombie.apply_knockback(1.0, 1.0, 0.0);
+```
+
+## Example: Custom Entity Interaction
+
+```rust
+use pumpkin::entity::*;
+
+struct MyHandler;
+
+impl EventHandler<PlayerInteractEntityEvent> for MyHandler {
+    fn handle<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a PlayerInteractEntityEvent
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            // Get the entity that was interacted with
+            if let Some(entity) = server
+                .get_world_from_dimension(&event.player.world.load().dimension)
+                .entities
+                .load()
+                .iter()
+                .find(|e| e.get_entity().entity_id == event.entity_id)
+            {
+                // Teleport entity to player
+                entity.clone().teleport(
+                    event.player.position(),
+                    None,
+                    None,
+                    event.player.world.load().clone()
+                ).await;
+            }
+        })
+    }
+}
+```
+
+## Passengers and Vehicles
+
+```rust
+// Get entity's passengers
+let passengers = entity.passengers.lock().await;
+for passenger in passengers.iter() {
+    println!("Passenger: {:?}", passenger.get_entity().entity_type);
+}
+
+// Get entity's vehicle
+if let Some(vehicle) = entity.vehicle.lock().await.as_ref() {
+    println!("Riding: {:?}", vehicle.get_entity().entity_type);
+}
+```

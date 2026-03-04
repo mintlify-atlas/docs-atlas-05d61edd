@@ -1,0 +1,281 @@
+---
+title: Java Edition Protocol
+description: Java Edition TCP protocol implementation
+---
+
+Pumpkin implements the Minecraft Java Edition protocol using TCP connections with support for encryption, compression, and multiple protocol versions.
+
+## Protocol Implementation
+
+The Java Edition protocol is implemented in `pumpkin-protocol/src/java/` with the following components:
+
+- **Packet Encoder** - Encodes packets for transmission to clients
+- **Packet Decoder** - Decodes packets received from clients  
+- **Client Packets** - Serverbound packet definitions
+- **Server Packets** - Clientbound packet definitions
+
+## Network Encoder
+
+The `TCPNetworkEncoder` handles encoding packets for transmission to Java Edition clients.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:80-317`
+
+```rust
+pub struct TCPNetworkEncoder<W: AsyncWrite + Unpin> {
+    writer: EncryptionWriter<W>,
+    compression: Option<(CompressionThreshold, CompressionLevel)>,
+    compressor: Option<(CompressionLevel, Compress)>,
+    compression_scratch: Vec<u8>,
+}
+```
+
+### Features
+
+- **Compression Support** - Automatic compression when packet size exceeds threshold
+- **Encryption Support** - AES-128 CFB8 encryption layer
+- **Buffer Reuse** - Reuses compression buffers to minimize allocations
+- **Async I/O** - Fully asynchronous packet writing
+
+### Usage
+
+```rust
+let mut encoder = TCPNetworkEncoder::new(writer);
+
+// Enable compression (threshold: 256 bytes, level: 6)
+encoder.set_compression((256, 6));
+
+// Enable encryption
+encoder.set_encryption(&key);
+
+// Write packet
+encoder.write_packet(packet_data).await?;
+encoder.flush().await?;
+```
+
+## Network Decoder
+
+The `TCPNetworkDecoder` handles decoding packets received from Java Edition clients.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:76-186`
+
+```rust
+pub struct TCPNetworkDecoder<R: AsyncRead + Unpin> {
+    reader: DecryptionReader<R>,
+    compression: Option<CompressionThreshold>,
+    payload_scratch: BytesMut,
+}
+```
+
+### Features
+
+- **Decompression Support** - Automatic decompression of compressed packets
+- **Decryption Support** - AES-128 CFB8 decryption layer
+- **Validation** - Validates packet sizes and compression ratios
+- **Async I/O** - Fully asynchronous packet reading
+
+### Usage
+
+```rust
+let mut decoder = TCPNetworkDecoder::new(reader);
+
+// Enable compression
+decoder.set_compression(256);
+
+// Enable encryption
+decoder.set_encryption(&key);
+
+// Read packet
+let raw_packet = decoder.get_raw_packet().await?;
+```
+
+## Packet Processing Pipeline
+
+### Encoding (Server → Client)
+
+```
+Raw Packet Data
+      ↓
+  Compression (if enabled and size > threshold)
+      ↓
+  Add Packet Length Prefix
+      ↓
+  Encryption (if enabled)
+      ↓
+  TCP Socket
+```
+
+Implemented in `pumpkin-protocol/src/java/packet_encoder.rs:200-309`
+
+### Decoding (Client → Server)
+
+```
+  TCP Socket
+      ↓
+  Decryption (if enabled)
+      ↓
+  Read Packet Length
+      ↓
+  Decompression (if enabled)
+      ↓
+  Extract Packet ID and Payload
+      ↓
+  Raw Packet Data
+```
+
+Implemented in `pumpkin-protocol/src/java/packet_decoder.rs:104-185`
+
+## Packet Traits
+
+### ClientPacket (Serverbound)
+
+```rust
+pub trait ClientPacket: MultiVersionJavaPacket {
+    fn write_packet_data(
+        &self,
+        write: impl Write,
+        version: &MinecraftVersion,
+    ) -> Result<(), WritingError>;
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:314-320`
+
+### ServerPacket (Clientbound)
+
+```rust
+pub trait ServerPacket: MultiVersionJavaPacket + Sized {
+    fn read(read: impl Read, version: &MinecraftVersion) -> Result<Self, ReadingError>;
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:322-324`
+
+## Packet Organization
+
+### Serverbound Packets
+
+Located in `pumpkin-protocol/src/java/server/`:
+
+- `handshake/` - Handshake state packets
+- `status/` - Status state packets  
+- `login/` - Login state packets
+- `config/` - Configuration state packets
+- `play/` - Play state packets
+
+### Clientbound Packets
+
+Located in `pumpkin-protocol/src/java/client/`:
+
+- `status/` - Status state packets
+- `login/` - Login state packets
+- `config/` - Configuration state packets  
+- `play/` - Play state packets
+
+## Error Handling
+
+### Encoding Errors
+
+```rust
+pub enum PacketEncodeError {
+    TooLong(usize),
+    CompressionFailed(String),
+    Message(String),
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:335-343`
+
+### Decoding Errors
+
+```rust
+pub enum PacketDecodeError {
+    DecodeID,
+    TooLong,
+    OutOfBounds,
+    MalformedLength(String),
+    FailedDecompression(String),
+    NotCompressed,
+    ConnectionClosed,
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:345-361`
+
+## VarInt Codec
+
+The protocol uses VarInt encoding for efficient integer transmission.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/codec/var_int.rs:21-106`
+
+```rust
+pub struct VarInt(pub i32);
+
+impl VarInt {
+    pub const MAX_SIZE: NonZeroUsize = NonZeroUsize::new(5).unwrap();
+    
+    pub const fn written_size(&self) -> usize {
+        match self.0 {
+            0 => 1,
+            n => (31 - n.leading_zeros() as usize) / 7 + 1,
+        }
+    }
+    
+    pub fn encode(&self, write: &mut impl Write) -> Result<(), WritingError>;
+    pub fn decode(read: &mut impl Read) -> Result<Self, ReadingError>;
+    pub async fn decode_async(read: &mut impl AsyncRead) -> Result<Self, ReadingError>;
+    pub async fn encode_async(&self, write: &mut impl AsyncWrite) -> Result<(), WritingError>;
+}
+```
+
+### Encoding Algorithm
+
+1. Cast value to u32 to handle negative numbers
+2. While value > 0x7F:
+   - Write (value & 0x7F) | 0x80
+   - Right shift value by 7 bits
+3. Write final byte (value & 0x7F)
+
+Implemented in `pumpkin-protocol/src/codec/var_int.rs:41-52`
+
+## Status Response
+
+The server responds to status queries with server information:
+
+```rust
+pub struct StatusResponse {
+    pub version: Option<Version>,
+    pub players: Option<Players>,
+    pub description: String,
+    pub favicon: Option<String>,
+    pub enforce_secure_chat: bool,
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:369-381`
+
+## Testing
+
+The encoder and decoder include comprehensive tests:
+
+- Encoding/decoding without compression or encryption
+- Encoding/decoding with compression only
+- Encoding/decoding with encryption only  
+- Encoding/decoding with both compression and encryption
+- Maximum packet size validation
+- Invalid data handling
+
+Tests located in:
+- `pumpkin-protocol/src/java/packet_encoder.rs:323-739`
+- `pumpkin-protocol/src/java/packet_decoder.rs:188-436`
+
+## Next Steps
+
+- [Encryption](/protocol/encryption) - Learn about AES encryption
+- [Compression](/protocol/compression) - Learn about Zlib compression
+- [Bedrock Edition](/protocol/bedrock-edition) - Compare with Bedrock protocol

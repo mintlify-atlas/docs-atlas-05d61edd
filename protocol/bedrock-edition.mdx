@@ -1,0 +1,346 @@
+---
+title: Bedrock Edition Protocol
+description: Bedrock Edition UDP protocol implementation with RakNet
+---
+
+Pumpkin implements the Minecraft Bedrock Edition protocol using UDP connections with the RakNet protocol for reliable packet delivery.
+
+## Protocol Implementation
+
+The Bedrock Edition protocol is implemented in `pumpkin-protocol/src/bedrock/` with the following components:
+
+- **RakNet Protocol** - Reliable UDP packet delivery system
+- **Packet Encoder** - Encodes game packets for Bedrock clients
+- **Packet Decoder** - Decodes game packets from Bedrock clients
+- **Frame Set** - Groups packets into frames for transmission
+- **ACK/NACK** - Acknowledgment system for reliable delivery
+
+## RakNet Constants
+
+Defined in `pumpkin-protocol/src/bedrock/mod.rs:9-23`
+
+```rust
+pub const UDP_HEADER_SIZE: u16 = 28;
+pub const MTU: usize = 1400;
+
+pub const RAKNET_MAGIC: [u8; 16] = [
+    0x00, 0xff, 0xff, 0x0, 0xfe, 0xfe, 0xfe, 0xfe,
+    0xfd, 0xfd, 0xfd, 0xfd, 0x12, 0x34, 0x56, 0x78,
+];
+
+pub const RAKNET_VALID: u8 = 0x80;
+pub const RAKNET_ACK: u8 = 0xC0;
+pub const RAKNET_NACK: u8 = 0xA0;
+pub const RAKNET_GAME_PACKET: i32 = 0xfe;
+pub const RAKNET_SPLIT: u8 = 0x10;
+```
+
+### Magic Bytes
+
+RakNet uses a 16-byte magic sequence to identify RakNet packets. This magic must be present in connection packets.
+
+### MTU (Maximum Transmission Unit)
+
+The default MTU is 1400 bytes, accounting for UDP and IP headers to prevent fragmentation.
+
+## Reliability System
+
+RakNet implements multiple reliability levels for packet delivery.
+
+### RakReliability Enum
+
+Defined in `pumpkin-protocol/src/bedrock/mod.rs:24-102`
+
+```rust
+pub enum RakReliability {
+    Unreliable,
+    UnreliableSequenced,
+    Reliable,
+    ReliableOrdered,         // Default
+    ReliableSequenced,
+    UnreliableWithAckReceipt,
+    ReliableWithAckReceipt,
+    ReliableOrderedWithAckReceipt,
+}
+```
+
+### Reliability Features
+
+- **is_reliable()** - Packet requires acknowledgment
+- **is_sequenced()** - Newer packets replace older ones
+- **is_ordered()** - Packets must arrive in order
+- **is_order_exclusive()** - Only ordered, not sequenced
+
+### Reliability ID Mapping
+
+```rust
+impl RakReliability {
+    pub const fn from_id(id: u8) -> Option<Self>;
+    pub const fn to_id(&self) -> u8;
+}
+```
+
+## Sub-Clients
+
+Bedrock Edition supports multiple sub-clients for split-screen gameplay.
+
+Defined in `pumpkin-protocol/src/bedrock/mod.rs:104-110`
+
+```rust
+pub enum SubClient {
+    Main = 0,
+    SubClient0 = 1,
+    SubClient1 = 2,
+    SubClient2 = 3,
+}
+```
+
+## Network Encoder
+
+The `UDPNetworkEncoder` handles encoding game packets for Bedrock Edition clients.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/bedrock/packet_encoder.rs:81-176`
+
+```rust
+pub struct UDPNetworkEncoder {
+    compression: Option<(CompressionThreshold, CompressionLevel)>,
+}
+```
+
+### Game Packet Structure
+
+Game packets use a 14-bit header encoding:
+
+- **Bits 0-9**: Game Packet ID (10 bits, 0-1023)
+- **Bits 10-11**: Sub-Client Sender ID (2 bits)
+- **Bits 12-13**: Sub-Client Target ID (2 bits)
+
+### Write Game Packet
+
+Defined in `pumpkin-protocol/src/bedrock/packet_encoder.rs:114-166`
+
+```rust
+pub fn write_game_packet(
+    &mut self,
+    packet_id: u16,
+    sub_client_sender: SubClient,
+    sub_client_target: SubClient,
+    packet_payload: &[u8],
+    writer: impl Write,
+) -> Result<(), Error>
+```
+
+### Encoding Process
+
+1. Write game packet ID (0xFE)
+2. Write compression method (if compression enabled)
+3. Calculate 14-bit header:
+   ```rust
+   let header = packet_id 
+       | ((sub_client_sender as u32) << 10)
+       | ((sub_client_target as u32) << 12);
+   ```
+4. Calculate total packet length
+5. Write packet length as VarUInt
+6. Write 14-bit header as VarUInt
+7. Write payload
+
+## Network Decoder
+
+The `UDPNetworkDecoder` handles decoding game packets from Bedrock Edition clients.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/bedrock/packet_decoder.rs:81-171`
+
+```rust
+pub struct UDPNetworkDecoder {
+    compression: Option<CompressionThreshold>,
+}
+```
+
+### Decoding Process
+
+Defined in `pumpkin-protocol/src/bedrock/packet_decoder.rs:124-170`
+
+1. Read compression method (if compression enabled)
+2. Read packet length (VarUInt)
+3. Read 14-bit header (VarUInt)
+4. Extract packet ID from header:
+   ```rust
+   let header = var_header.0 & 0x3FFF;  // Mask to 14 bits
+   let gamepacket_id = (header & 0x3FF) as u16;  // Lower 10 bits
+   ```
+5. Read payload bytes
+6. Return RawPacket
+
+## VarUInt Codec
+
+Bedrock Edition uses VarUInt (unsigned variable-length integers) for packet lengths and headers.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/codec/var_uint.rs`
+
+```rust
+pub struct VarUInt(pub u32);
+
+impl VarUInt {
+    pub const MAX_SIZE: NonZeroUsize = NonZeroUsize::new(5).unwrap();
+    
+    pub const fn written_size(&self) -> usize {
+        match self.0 {
+            0 => 1,
+            n => (32 - n.leading_zeros() as usize) / 7 + 1,
+        }
+    }
+    
+    pub fn encode(&self, write: &mut impl Write) -> Result<(), WritingError>;
+    pub fn decode(read: &mut impl Read) -> Result<Self, ReadingError>;
+}
+```
+
+### Encoding Algorithm
+
+Similar to VarInt but uses unsigned values:
+
+1. While value > 0x7F:
+   - Write (value & 0x7F) | 0x80
+   - Right shift value by 7 bits
+2. Write final byte (value & 0x7F)
+
+## Packet Components
+
+### ACK Packets
+
+Acknowledgment packets confirm receipt of reliable packets.
+
+Implemented in `pumpkin-protocol/src/bedrock/ack.rs`
+
+### NACK Packets
+
+Negative acknowledgment packets request retransmission of missing packets.
+
+### Frame Sets
+
+Groups multiple packets into frames for efficient transmission.
+
+Implemented in `pumpkin-protocol/src/bedrock/frame_set.rs`
+
+### Network Items
+
+Individual packets within a frame set.
+
+Implemented in `pumpkin-protocol/src/bedrock/network_item.rs`
+
+## Packet Organization
+
+### Serverbound Packets
+
+Located in `pumpkin-protocol/src/bedrock/server/`:
+
+- Connection request packets
+- Game packets from client
+- ACK/NACK responses
+
+### Clientbound Packets
+
+Located in `pumpkin-protocol/src/bedrock/client/`:
+
+- Connection reply packets
+- Game packets to client
+- ACK/NACK requests
+
+## Encryption and Compression
+
+### Current Status
+
+As of the latest implementation:
+
+- **Encryption**: Not yet implemented for Bedrock (stubbed in encoder/decoder)
+- **Compression**: Framework in place but not fully implemented
+
+Defined in:
+- `pumpkin-protocol/src/bedrock/packet_encoder.rs:106-112`
+- `pumpkin-protocol/src/bedrock/packet_decoder.rs:102-108`
+
+### Planned Support
+
+```rust
+// TODO: compression & encryption
+pub const fn set_encryption(&mut self, _key: &[u8; 16]) {
+    // Future implementation
+}
+```
+
+## Differences from Java Edition
+
+| Feature | Java Edition | Bedrock Edition |
+|---------|-------------|----------------|
+| Transport | TCP | UDP (RakNet) |
+| Reliability | TCP guarantees | RakNet reliability system |
+| Packet Header | VarInt length + ID | 0xFE + VarUInt length + 14-bit header |
+| Compression | Zlib (implemented) | Zlib (planned) |
+| Encryption | AES-128 CFB8 | Not implemented |
+| MTU | N/A (TCP) | 1400 bytes |
+| Sub-Clients | No | Yes (split-screen) |
+
+## Packet Traits
+
+### BClientPacket (Serverbound)
+
+```rust
+pub trait BClientPacket: Packet {
+    fn write_packet(&self, writer: impl Write) -> Result<(), Error>;
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:326-328`
+
+### BServerPacket (Clientbound)
+
+```rust
+pub trait BServerPacket: Packet + Sized {
+    fn read(read: impl Read) -> Result<Self, Error>;
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:330-332`
+
+### Packet Trait
+
+```rust
+pub trait Packet {
+    const PACKET_ID: VarIntType;
+}
+```
+
+Defined in `pumpkin-protocol/src/packet.rs:13-15`
+
+## RakNet Protocol Flow
+
+### Connection Establishment
+
+1. Client sends **Open Connection Request 1** with MTU size
+2. Server responds with **Open Connection Reply 1**
+3. Client sends **Open Connection Request 2** with client GUID
+4. Server responds with **Open Connection Reply 2** with server GUID
+5. Client sends **Connection Request**
+6. Server responds with **Connection Request Accepted**
+7. Client sends **New Incoming Connection**
+8. Connection established, game packets can be sent
+
+### Reliable Packet Flow
+
+1. Sender transmits packet with sequence number
+2. Receiver stores packet and sends ACK
+3. If ACK not received within timeout, sender retransmits
+4. If packet missing, receiver sends NACK to request retransmission
+
+## Next Steps
+
+- [Java Edition Protocol](/protocol/java-edition) - Compare with Java Edition
+- [Encryption](/protocol/encryption) - Learn about encryption (Java only currently)
+- [Compression](/protocol/compression) - Learn about compression support

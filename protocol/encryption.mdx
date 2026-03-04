@@ -1,0 +1,410 @@
+---
+title: Connection Encryption
+description: AES-128 CFB8 encryption implementation for secure connections
+---
+
+Pumpkin implements AES-128 encryption in CFB8 mode to secure Minecraft network connections, protecting player data during transmission.
+
+## Encryption Implementation
+
+Encryption is implemented for Java Edition connections using AES-128 in CFB8 (Cipher Feedback 8-bit) mode.
+
+### Dependencies
+
+Defined in `pumpkin-protocol/Cargo.toml:26-28`
+
+```toml
+# encryption
+aes.workspace = true
+cfb8.workspace = true
+```
+
+### Cipher Types
+
+Defined in `pumpkin-protocol/src/lib.rs:185` and `pumpkin-protocol/src/lib.rs:227`
+
+```rust
+type Aes128Cfb8Dec = cfb8::Decryptor<aes::Aes128>;
+type Aes128Cfb8Enc = cfb8::Encryptor<aes::Aes128>;
+```
+
+## Stream Decryptor
+
+The `StreamDecryptor` wraps an `AsyncRead` stream to decrypt data on-the-fly.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/lib.rs:187-225`
+
+```rust
+pub struct StreamDecryptor<R: AsyncRead + Unpin> {
+    cipher: Aes128Cfb8Dec,
+    read: R,
+}
+
+impl<R: AsyncRead + Unpin> StreamDecryptor<R> {
+    pub const fn new(cipher: Aes128Cfb8Dec, stream: R) -> Self {
+        Self {
+            cipher,
+            read: stream,
+        }
+    }
+}
+```
+
+### AsyncRead Implementation
+
+Defined in `pumpkin-protocol/src/lib.rs:201-225`
+
+The decryptor:
+
+1. Reads raw encrypted data from underlying stream
+2. Decrypts data in-place using AES-128 CFB8
+3. Returns decrypted data to caller
+
+```rust
+fn poll_read(
+    self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    buf: &mut ReadBuf<'_>,
+) -> Poll<std::io::Result<()>> {
+    let ref_self = self.get_mut();
+    let original_fill = buf.filled().len();
+    
+    // Read raw encrypted data
+    let internal_poll = read.poll_read(cx, buf);
+    
+    if matches!(internal_poll, Poll::Ready(Ok(()))) {
+        // Decrypt in-place (block size is 1 byte)
+        for block in buf.filled_mut()[original_fill..].chunks_mut(Aes128Cfb8Dec::block_size()) {
+            cipher.decrypt_block_mut(block.into());
+        }
+    }
+    
+    internal_poll
+}
+```
+
+### CFB8 Block Size
+
+CFB8 mode operates on 1-byte blocks, making in-place decryption safe and efficient.
+
+## Stream Encryptor
+
+The `StreamEncryptor` wraps an `AsyncWrite` stream to encrypt data on-the-fly.
+
+### Implementation
+
+Defined in `pumpkin-protocol/src/lib.rs:230-307`
+
+```rust
+pub struct StreamEncryptor<W: AsyncWrite + Unpin> {
+    cipher: Aes128Cfb8Enc,
+    write: W,
+    last_unwritten_encrypted_byte: Option<u8>,
+}
+
+impl<W: AsyncWrite + Unpin> StreamEncryptor<W> {
+    pub fn new(cipher: Aes128Cfb8Enc, stream: W) -> Self {
+        debug_assert_eq!(Aes128Cfb8Enc::block_size(), 1);
+        Self {
+            cipher,
+            write: stream,
+            last_unwritten_encrypted_byte: None,
+        }
+    }
+}
+```
+
+### AsyncWrite Implementation
+
+Defined in `pumpkin-protocol/src/lib.rs:247-307`
+
+The encryptor:
+
+1. Encrypts each byte using AES-128 CFB8
+2. Writes encrypted bytes to underlying stream
+3. Handles partial writes by caching last encrypted byte
+
+```rust
+fn poll_write(
+    self: Pin<&mut Self>,
+    cx: &mut Context<'_>,
+    buf: &[u8],
+) -> Poll<Result<usize, Error>> {
+    let ref_self = self.get_mut();
+    let mut total_written = 0;
+    
+    for block in buf.chunks(Aes128Cfb8Enc::block_size()) {
+        let mut out = [0u8];
+        
+        if let Some(cached) = ref_self.last_unwritten_encrypted_byte {
+            out[0] = cached;
+        } else {
+            cipher.encrypt_block_b2b_mut(block.into(), out_block);
+        }
+        
+        match write.poll_write(cx, &out) {
+            Poll::Pending => {
+                ref_self.last_unwritten_encrypted_byte = Some(out[0]);
+                if total_written == 0 {
+                    return Poll::Pending;
+                }
+                return Poll::Ready(Ok(total_written));
+            }
+            Poll::Ready(Ok(written)) => {
+                ref_self.last_unwritten_encrypted_byte = None;
+                total_written += written;
+            }
+            Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
+        }
+    }
+    
+    Poll::Ready(Ok(total_written))
+}
+```
+
+### Write Buffering
+
+The encryptor maintains `last_unwritten_encrypted_byte` to handle cases where the underlying stream cannot accept a write immediately, ensuring data integrity.
+
+## Encryption in Java Edition
+
+### Decoder Encryption
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:96-102`
+
+```rust
+pub fn set_encryption(&mut self, key: &[u8; 16]) {
+    if matches!(self.reader, DecryptionReader::Decrypt(_)) {
+        panic!("Cannot upgrade a stream that already has a cipher!");
+    }
+    let cipher = Aes128Cfb8Dec::new_from_slices(key, key).expect("invalid key");
+    take_mut::take(&mut self.reader, |decoder| decoder.upgrade(cipher));
+}
+```
+
+### Encoder Encryption
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:110-117`
+
+```rust
+pub fn set_encryption(&mut self, key: &[u8; 16]) {
+    if matches!(self.writer, EncryptionWriter::Encrypt(_)) {
+        panic!("Cannot upgrade a stream that already has a cipher!");
+    }
+    let cipher = Aes128Cfb8Enc::new_from_slices(key, key).expect("invalid key");
+    take_mut::take(&mut self.writer, |encoder| encoder.upgrade(cipher));
+}
+```
+
+### Key and IV
+
+In Minecraft's protocol, the encryption key and initialization vector (IV) are the same 16-byte value:
+
+```rust
+Aes128Cfb8Enc::new_from_slices(key, key)  // key used as both key and IV
+```
+
+This is standard for Minecraft's encryption implementation.
+
+## Encryption Wrapper Types
+
+### DecryptionReader
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:38-71`
+
+```rust
+pub enum DecryptionReader<R: AsyncRead + Unpin> {
+    Decrypt(Box<StreamDecryptor<R>>),
+    None(R),
+}
+
+impl<R: AsyncRead + Unpin> DecryptionReader<R> {
+    pub fn upgrade(self, cipher: Aes128Cfb8Dec) -> Self {
+        match self {
+            Self::None(stream) => Self::Decrypt(Box::new(StreamDecryptor::new(cipher, stream))),
+            Self::Decrypt(_) => panic!("Cannot upgrade a stream that already has a cipher!"),
+        }
+    }
+}
+```
+
+Allows toggling encryption on/off by wrapping the stream.
+
+### EncryptionWriter
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:14-78`
+
+```rust
+pub enum EncryptionWriter<W: AsyncWrite + Unpin> {
+    Encrypt(Box<StreamEncryptor<W>>),
+    None(W),
+}
+
+impl<W: AsyncWrite + Unpin> EncryptionWriter<W> {
+    pub fn upgrade(self, cipher: Aes128Cfb8Enc) -> Self {
+        match self {
+            Self::None(stream) => Self::Encrypt(Box::new(StreamEncryptor::new(cipher, stream))),
+            Self::Encrypt(_) => panic!("Cannot upgrade a stream that already has a cipher!"),
+        }
+    }
+}
+```
+
+## Encryption Lifecycle
+
+### Initial State
+
+Connections start without encryption:
+
+```rust
+let decoder = TCPNetworkDecoder::new(reader);  // No encryption
+let encoder = TCPNetworkEncoder::new(writer);  // No encryption
+```
+
+### Enabling Encryption
+
+Encryption is enabled after login handshake:
+
+```rust
+// Both encoder and decoder use the same key
+decoder.set_encryption(&shared_key);
+encoder.set_encryption(&shared_key);
+```
+
+### One-Way Transition
+
+Encryption cannot be disabled once enabled. Attempting to enable it twice will panic:
+
+```rust
+panic!("Cannot upgrade a stream that already has a cipher!");
+```
+
+## Encryption with Compression
+
+### Processing Order
+
+**Encoding (Server → Client):**
+```
+Raw Packet → Compress → Encrypt → Network
+```
+
+**Decoding (Client → Server):**
+```
+Network → Decrypt → Decompress → Raw Packet
+```
+
+### Implementation
+
+Both encryption and compression can be enabled:
+
+```rust
+encoder.set_compression((256, 6));  // Enable compression
+encoder.set_encryption(&key);        // Enable encryption
+```
+
+Data is first compressed, then encrypted before transmission.
+
+## Testing Encryption
+
+Encryption is tested in the packet encoder/decoder test suites.
+
+### Test: Decode with Encryption
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:310-331`
+
+```rust
+#[tokio::test]
+async fn decode_with_encryption() {
+    let packet_id = 3;
+    let payload = b"Hello, encrypted world!";
+    let key = [0x00u8; 16];
+    
+    // Build encrypted packet
+    let packet = build_packet(packet_id, payload, false, Some(&key), Some(&key));
+    
+    // Initialize decoder with encryption
+    let mut decoder = TCPNetworkDecoder::new(packet.as_slice());
+    decoder.set_encryption(&key);
+    
+    // Decode and verify
+    let raw_packet = decoder.get_raw_packet().await.expect("Decoding failed");
+    assert_eq!(raw_packet.id, packet_id);
+    assert_eq!(raw_packet.payload.as_ref(), payload);
+}
+```
+
+### Test: Encode with Encryption
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:497-535`
+
+```rust
+#[tokio::test]
+async fn encode_with_encryption() {
+    let packet = CStatusResponse::new("{\"description\": \"A Minecraft Server\"}".to_string());
+    let key = [0x00u8; 16];
+    
+    // Build encrypted packet
+    let mut packet_bytes = build_packet_with_encoder(&packet, None, Some(&key)).await;
+    
+    // Decrypt to verify
+    decrypt_aes128(&mut packet_bytes, &key, &key);
+    
+    // Verify packet structure
+    let mut buffer = &packet_bytes[..];
+    let packet_length = decode_varint(&mut buffer).expect("Failed to decode packet length");
+    let decoded_packet_id = decode_varint(&mut buffer).expect("Failed to decode packet ID");
+    
+    assert_eq!(decoded_packet_id, CStatusResponse::to_id(MinecraftVersion::V_1_21_11));
+}
+```
+
+## Security Considerations
+
+### Key Exchange
+
+The encryption key is established during the login handshake using RSA encryption. The server:
+
+1. Generates a 16-byte shared secret
+2. Encrypts it with the client's public key (RSA)
+3. Sends encrypted secret to client
+4. Client decrypts with private key
+5. Both parties derive the AES key from the shared secret
+
+### AES-128 CFB8 Properties
+
+- **Key Size**: 128 bits (16 bytes)
+- **Block Size**: 8 bits (1 byte) in CFB8 mode
+- **IV**: Same as key in Minecraft protocol
+- **Padding**: Not required (stream cipher mode)
+- **Security**: Adequate for game traffic protection
+
+### Implementation Notes
+
+- Keys are passed as `&[u8; 16]` to ensure correct size
+- Cipher is initialized with `new_from_slices(key, iv)` which validates key/IV lengths
+- Invalid keys cause a panic with `expect("invalid key")`
+
+## Bedrock Edition Encryption
+
+### Current Status
+
+Bedrock Edition encryption is not yet implemented:
+
+```rust
+// pumpkin-protocol/src/bedrock/packet_encoder.rs:106-112
+pub const fn set_encryption(&mut self, _key: &[u8; 16]) {
+    // TODO: Implement encryption for Bedrock Edition
+}
+```
+
+### Planned Implementation
+
+Bedrock Edition uses a different encryption scheme than Java Edition, which will require separate implementation.
+
+## Next Steps
+
+- [Compression](/protocol/compression) - Learn about packet compression
+- [Java Edition Protocol](/protocol/java-edition) - See encryption in context
+- [Overview](/protocol/overview) - Return to protocol overview

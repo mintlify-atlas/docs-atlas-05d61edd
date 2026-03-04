@@ -1,80 +1,244 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick start
+description: Get your Pumpkin server running in minutes
 ---
 
-## Get started in three steps
+This guide will help you get a Pumpkin server up and running quickly. For more detailed installation options, see the [installation guide](/installation).
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+- **Rust 1.89+** (for building from source)
+- **Git** (for cloning the repository)
+- **Docker** (optional, for containerized deployment)
+
+## Quick start with Docker
+
+The fastest way to get Pumpkin running is with Docker:
+
+<Steps>
+  <Step title="Pull the Docker image">
+    Pull the latest Pumpkin image from GitHub Container Registry:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+    ```bash
+    docker pull ghcr.io/pumpkin-mc/pumpkin:latest
+    ```
+  </Step>
+  
+  <Step title="Create configuration directory">
+    Create a directory for your server configuration:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+    ```bash
+    mkdir -p pumpkin-server/config
+    cd pumpkin-server
+    ```
+  </Step>
+  
+  <Step title="Run the server">
+    Start the server with Docker:
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```bash
+    docker run -d \
+      --name pumpkin \
+      -p 25565:25565 \
+      -p 19132:19132/udp \
+      -v $(pwd)/config:/app/config \
+      -v $(pwd)/world:/app/world \
+      ghcr.io/pumpkin-mc/pumpkin:latest
+    ```
+    
+    <Note>
+      Port 25565 is for Java Edition clients, and port 19132 is for Bedrock Edition clients.
+    </Note>
+  </Step>
+  
+  <Step title="Connect to your server">
+    Connect to your server using your Minecraft client:
+    
+    - **Java Edition**: Connect to `localhost:25565`
+    - **Bedrock Edition**: Connect to `localhost:19132`
+  </Step>
+</Steps>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+## Quick start from source
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+If you prefer to build from source:
 
-### Step 3: Go live
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Pumpkin-MC/Pumpkin.git
+    cd Pumpkin
+    ```
+  </Step>
+  
+  <Step title="Build the project">
+    Build Pumpkin in release mode for optimal performance:
+    
+    ```bash
+    cargo build --release
+    ```
+    
+    <Note>
+      The first build may take 10-15 minutes as Cargo downloads and compiles all dependencies.
+    </Note>
+  </Step>
+  
+  <Step title="Run the server">
+    ```bash
+    cargo run --release
+    ```
+    
+    The server will start and listen on port 25565 by default.
+  </Step>
+</Steps>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+## Basic configuration
+
+Create a `config/configuration.toml` file to customize your server:
+
+```toml
+[basic]
+# Server network settings
+server_address = "0.0.0.0:25565"
+bedrock_address = "0.0.0.0:19132"
+
+# Server identity
+motd = "A Pumpkin Server"
+max_players = 100
+
+# World settings
+seed = ""
+difficulty = "Normal"
+default_gamemode = "Survival"
+view_distance = 10
+simulation_distance = 10
+
+# Authentication
+online_mode = true
+```
+
+For more configuration options, see the [configuration guide](/configuration/overview).
+
+## Docker Compose setup
+
+For production deployments, use Docker Compose. Create a `docker-compose.yml` file:
+
+```yaml
+version: '3.8'
+
+services:
+  pumpkin:
+    image: ghcr.io/pumpkin-mc/pumpkin:latest
+    container_name: pumpkin-server
+    ports:
+      - "25565:25565"
+      - "19132:19132/udp"
+    volumes:
+      - ./config:/app/config
+      - ./world:/app/world
+    restart: unless-stopped
+    environment:
+      - RUST_BACKTRACE=1
+```
+
+Start the server:
+
+```bash
+docker-compose up -d
+```
+
+## Connecting with Bedrock Edition
+
+Bedrock Edition clients can connect to your Pumpkin server on port 19132 (UDP). Ensure this port is open in your firewall:
+
+```bash
+# Ubuntu/Debian
+sudo ufw allow 19132/udp
+
+# CentOS/RHEL
+sudo firewall-cmd --add-port=19132/udp --permanent
+sudo firewall-cmd --reload
+```
+
+## Troubleshooting
+
+### Server won't start
+
+Check the logs for error messages:
+
+```bash
+# Docker
+docker logs pumpkin
+
+# From source
+cargo run --release
+```
+
+Common issues:
+- **Port already in use**: Another Minecraft server may be running on port 25565
+- **Permission denied**: Ensure you have write permissions to the `world` and `config` directories
+- **Missing configuration**: The server creates default config files on first run
+
+### Cannot connect to server
+
+1. **Check the server is running**:
+   ```bash
+   docker ps  # For Docker
+   ps aux | grep pumpkin  # For source builds
+   ```
+
+2. **Verify ports are open**:
+   ```bash
+   netstat -tulpn | grep 25565
+   ```
+
+3. **Check firewall rules**:
+   ```bash
+   sudo ufw status  # Ubuntu/Debian
+   ```
+
+### High memory usage
+
+Pumpkin is optimized for performance but may use significant memory with many players. To limit memory usage:
+
+1. Reduce `view_distance` and `simulation_distance` in configuration
+2. Lower `max_players` limit
+3. Set Docker memory limits:
+   ```bash
+   docker run --memory="2g" ...
+   ```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Configuration"
+    icon="sliders"
+    href="/configuration/overview"
+  >
+    Learn about all configuration options
+  </Card>
+  <Card
+    title="Features"
+    icon="stars"
+    href="/features/protocol"
+  >
+    Explore Pumpkin's features
+  </Card>
+  <Card
+    title="Deployment"
+    icon="server"
+    href="/deployment/docker"
+  >
+    Deploy to production
+  </Card>
+  <Card
+    title="Plugin Development"
+    icon="plug"
+    href="/plugins/introduction"
+  >
+    Create custom plugins
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

@@ -1,0 +1,480 @@
+---
+title: Advanced Configuration
+description: Optional features and fine-tuning in features.toml
+---
+
+The `features.toml` file contains advanced configuration for optional features and performance tuning. All features are designed to match vanilla behavior by default.
+
+## Logging
+
+Control server logging behavior.
+
+<ParamField path="logging.enabled" type="boolean" default="true">
+  Whether logging is enabled.
+</ParamField>
+
+<ParamField path="logging.threads" type="boolean" default="true">
+  Whether to include thread names in log output.
+</ParamField>
+
+<ParamField path="logging.color" type="boolean" default="true">
+  Whether to enable colored log output in the console.
+</ParamField>
+
+<ParamField path="logging.timestamp" type="boolean" default="true">
+  Whether to include timestamps in log entries.
+</ParamField>
+
+<ParamField path="logging.file" type="string" default="latest.log">
+  Path to the log file.
+</ParamField>
+
+## Resource Pack
+
+Configure server resource pack distribution.
+
+<ParamField path="resource_pack.enabled" type="boolean" default="false">
+  Whether the resource pack system is enabled.
+</ParamField>
+
+<ParamField path="resource_pack.url" type="string" default="">
+  The URL to the resource pack file.
+  
+  **Validation**: Required when `enabled = true`.
+</ParamField>
+
+<ParamField path="resource_pack.sha1" type="string" default="">
+  The SHA1 hash (40 hexadecimal characters) of the resource pack.
+  
+  **Validation**: Required when `enabled = true`. Must be exactly 40 characters.
+</ParamField>
+
+<ParamField path="resource_pack.prompt_message" type="string" default="">
+  Custom prompt text shown to players when the resource pack is offered. Leave blank for the default prompt.
+</ParamField>
+
+<ParamField path="resource_pack.force" type="boolean" default="false">
+  Whether players are forced to accept the resource pack. Players who decline will be disconnected.
+</ParamField>
+
+## World
+
+World-specific settings beyond basic configuration.
+
+### Chunk Storage
+
+<ParamField path="world.chunk.type" type="ChunkFormat" default="anvil">
+  Chunk storage format.
+  
+  Valid values:
+  - `"anvil"` - Standard Anvil format (compatible with vanilla)
+  - `"linear"` - Linear chunk storage format
+</ParamField>
+
+#### Anvil Configuration
+
+<ParamField path="world.chunk.compression.algorithm" type="Compression" default="LZ4">
+  Compression algorithm for Anvil chunk storage.
+  
+  Valid values:
+  - `"GZip"` - GZip compression
+  - `"ZLib"` - ZLib compression
+  - `"LZ4"` - LZ4 compression (since 24w04a, fastest)
+  - `"Custom"` - Custom compression (since 24w05a)
+</ParamField>
+
+<ParamField path="world.chunk.compression.level" type="u32" default="6">
+  Compression level (algorithm-specific). Higher values = better compression but slower.
+</ParamField>
+
+<ParamField path="world.chunk.write_in_place" type="boolean" default="false">
+  Whether chunks should be written in place (overwriting existing data) or appended.
+</ParamField>
+
+### Lighting
+
+<ParamField path="world.lighting" type="LightingEngine" default="default">
+  Lighting engine configuration.
+  
+  Valid values:
+  - `"default"` - Default lighting engine
+  - `"full"` - Full lighting calculations
+  - `"dark"` - Disable lighting (all dark)
+</ParamField>
+
+### Autosave
+
+<ParamField path="world.autosave_ticks" type="u64" default="6000">
+  Number of ticks between autosave checks. At 20 TPS, 6000 ticks = 5 minutes.
+  
+  Set to `0` to disable autosave.
+</ParamField>
+
+## Networking
+
+### Packet Compression
+
+<ParamField path="networking.packet_compression.enabled" type="boolean" default="true">
+  Whether network packet compression is enabled.
+</ParamField>
+
+<ParamField path="networking.packet_compression.threshold" type="u32" default="256">
+  Compression threshold in bytes. Packets smaller than this will not be compressed.
+</ParamField>
+
+<ParamField path="networking.packet_compression.level" type="u32" default="4">
+  Compression level between 0-9.
+  - `1` = optimize for speed
+  - `9` = optimize for compression ratio
+  - `4` = balanced default
+</ParamField>
+
+### Authentication
+
+<ParamField path="networking.authentication.enabled" type="boolean" default="true">
+  Whether to use Mojang authentication.
+</ParamField>
+
+<ParamField path="networking.authentication.url" type="Option<String>" default="None">
+  Optional custom authentication URL for third-party auth servers (e.g., Drasl).
+</ParamField>
+
+<ParamField path="networking.authentication.connect_timeout" type="u32" default="5000">
+  Connection timeout in milliseconds for authentication requests.
+</ParamField>
+
+<ParamField path="networking.authentication.read_timeout" type="u32" default="5000">
+  Read timeout in milliseconds for authentication requests.
+</ParamField>
+
+<ParamField path="networking.authentication.prevent_proxy_connections" type="boolean" default="false">
+  Whether to prevent connections via VPN/proxy services.
+</ParamField>
+
+<ParamField path="networking.authentication.services_url" type="Option<String>" default="None">
+  Public services URL (used by Drasl and Mojang for player profiles).
+</ParamField>
+
+#### Player Profiles
+
+<ParamField path="networking.authentication.player_profile.allow_banned_players" type="boolean" default="false">
+  Allow players flagged by Mojang (e.g., banned, forced name change).
+</ParamField>
+
+<ParamField path="networking.authentication.player_profile.allowed_actions" type="Vec<ProfileAction>" default='["FORCED_NAME_CHANGE", "USING_BANNED_SKIN"]'>
+  Profile actions that are allowed when `allow_banned_players = true`.
+  
+  Valid values:
+  - `"FORCED_NAME_CHANGE"` - Player's name was forcibly changed
+  - `"USING_BANNED_SKIN"` - Player is using a banned skin
+</ParamField>
+
+#### Textures
+
+<ParamField path="networking.authentication.textures.enabled" type="boolean" default="true">
+  Whether to use player textures (skins, capes, elytras).
+</ParamField>
+
+<ParamField path="networking.authentication.textures.allowed_url_schemes" type="Vec<String>" default='["http", "https"]'>
+  Allowed URL schemes for texture downloads.
+</ParamField>
+
+<ParamField path="networking.authentication.textures.allowed_url_domains" type="Vec<String>" default='[".minecraft.net", ".mojang.com"]'>
+  Allowed domains for texture downloads.
+</ParamField>
+
+<ParamField path="networking.authentication.textures.types.skin" type="boolean" default="true">
+  Enable player skins.
+</ParamField>
+
+<ParamField path="networking.authentication.textures.types.cape" type="boolean" default="true">
+  Enable player capes.
+</ParamField>
+
+<ParamField path="networking.authentication.textures.types.elytra" type="boolean" default="true">
+  Enable player elytra textures.
+</ParamField>
+
+### Query Protocol
+
+<ParamField path="networking.query.enabled" type="boolean" default="true">
+  Whether the query protocol is enabled for server status requests.
+</ParamField>
+
+<ParamField path="networking.query.address" type="SocketAddr" default="0.0.0.0:25565">
+  The address and port the query service binds to.
+</ParamField>
+
+### RCON (Remote Console)
+
+<ParamField path="networking.rcon.enabled" type="boolean" default="false">
+  Whether RCON is enabled.
+</ParamField>
+
+<ParamField path="networking.rcon.address" type="SocketAddr" default="0.0.0.0:25575">
+  The network address and port where the RCON server listens.
+</ParamField>
+
+<ParamField path="networking.rcon.password" type="string" default="">
+  The password required for RCON authentication.
+  
+  <Warning>
+    Use a strong password! RCON provides full server control.
+  </Warning>
+</ParamField>
+
+<ParamField path="networking.rcon.max_connections" type="u32" default="0">
+  Maximum number of concurrent RCON connections. `0` = unlimited.
+</ParamField>
+
+<ParamField path="networking.rcon.logging.logged_successfully" type="boolean" default="true">
+  Whether successful RCON logins should be logged.
+</ParamField>
+
+<ParamField path="networking.rcon.logging.wrong_password" type="boolean" default="true">
+  Whether failed login attempts with incorrect passwords should be logged.
+</ParamField>
+
+<ParamField path="networking.rcon.logging.commands" type="boolean" default="true">
+  Whether all RCON commands should be logged.
+</ParamField>
+
+<ParamField path="networking.rcon.logging.quit" type="boolean" default="true">
+  Whether RCON quit commands should be logged.
+</ParamField>
+
+### Proxy Support
+
+<ParamField path="networking.proxy.enabled" type="boolean" default="false">
+  Whether proxy support is enabled.
+</ParamField>
+
+<ParamField path="networking.proxy.velocity.enabled" type="boolean" default="false">
+  Whether Velocity proxy support is enabled.
+</ParamField>
+
+<ParamField path="networking.proxy.velocity.secret" type="string" default="">
+  Shared secret for authenticating connections from the Velocity proxy.
+  
+  **Must match** the `forwarding-secret` in your Velocity `config.toml`.
+</ParamField>
+
+<ParamField path="networking.proxy.bungeecord.enabled" type="boolean" default="false">
+  Whether BungeeCord proxy support is enabled.
+</ParamField>
+
+### LAN Broadcast
+
+<ParamField path="networking.lan_broadcast.enabled" type="boolean" default="false">
+  Whether LAN broadcast is enabled for local network discovery.
+</ParamField>
+
+<ParamField path="networking.lan_broadcast.motd" type="Option<String>" default="None">
+  Optional one-line MOTD for LAN clients. Defaults to the server MOTD with newlines removed.
+</ParamField>
+
+<ParamField path="networking.lan_broadcast.port" type="Option<u16>" default="None">
+  Optional port for LAN broadcast. Useful for predictable ports in Docker containers.
+</ParamField>
+
+## Commands
+
+<ParamField path="commands.use_console" type="boolean" default="true">
+  Whether commands from the server console are accepted.
+</ParamField>
+
+<ParamField path="commands.use_tty" type="boolean" default="true">
+  Whether to use rustyline for TTY input (enables command history and editing).
+</ParamField>
+
+<ParamField path="commands.log_console" type="boolean" default="true">
+  Whether commands from players are logged in the console.
+</ParamField>
+
+<ParamField path="commands.default_op_level" type="PermissionLvl" default="Zero">
+  The permission level for players not in the ops file.
+  
+  Valid values: `Zero`, `One`, `Two`, `Three`, `Four` (see [Permissions](/configuration/permissions))
+</ParamField>
+
+## Chat
+
+<ParamField path="chat.format" type="string" default="<{DISPLAYNAME}> {MESSAGE}">
+  Custom chat format.
+  
+  **Note**: This does not apply when secure chat (signed messages) is enabled.
+  
+  Available placeholders:
+  - `{DISPLAYNAME}` - Player's display name
+  - `{MESSAGE}` - The chat message
+  
+  Example:
+  ```toml
+  format = "[{DISPLAYNAME}]: {MESSAGE}"
+  ```
+</ParamField>
+
+## PVP (Player vs Player)
+
+<ParamField path="pvp.enabled" type="boolean" default="true">
+  Whether PVP is enabled on the server.
+</ParamField>
+
+<ParamField path="pvp.hurt_animation" type="boolean" default="true">
+  Whether to show the red hurt animation and FOV bobbing when hit.
+</ParamField>
+
+<ParamField path="pvp.protect_creative" type="boolean" default="true">
+  Whether players in creative mode are protected from PVP damage.
+</ParamField>
+
+<ParamField path="pvp.knockback" type="boolean" default="true">
+  Whether knockback from attacks is applied.
+</ParamField>
+
+<ParamField path="pvp.swing" type="boolean" default="true">
+  Whether players swing their hand when attacking.
+</ParamField>
+
+## Server Links
+
+URLs exposed to clients via the server links menu.
+
+<ParamField path="server_links.enabled" type="boolean" default="true">
+  Whether server links are enabled.
+</ParamField>
+
+<ParamField path="server_links.bug_report" type="string" default="https://github.com/Pumpkin-MC/Pumpkin/issues">
+  URL for bug reports.
+</ParamField>
+
+<ParamField path="server_links.support" type="string" default="">
+  URL for support resources.
+</ParamField>
+
+<ParamField path="server_links.status" type="string" default="">
+  URL for server status page.
+</ParamField>
+
+<ParamField path="server_links.feedback" type="string" default="">
+  URL for player feedback.
+</ParamField>
+
+<ParamField path="server_links.community" type="string" default="">
+  URL for the community page.
+</ParamField>
+
+<ParamField path="server_links.website" type="string" default="">
+  URL for the official website.
+</ParamField>
+
+<ParamField path="server_links.forums" type="string" default="">
+  URL for forums.
+</ParamField>
+
+<ParamField path="server_links.news" type="string" default="">
+  URL for news updates.
+</ParamField>
+
+<ParamField path="server_links.announcements" type="string" default="">
+  URL for announcements.
+</ParamField>
+
+<ParamField path="server_links.custom" type="HashMap<String, String>" default="{}">
+  Custom key-value links.
+  
+  Example:
+  ```toml
+  [server_links.custom]
+  Discord = "https://discord.gg/yourserver"
+  Wiki = "https://wiki.example.com"
+  ```
+</ParamField>
+
+## Player Data
+
+<ParamField path="player_data.save_player_data" type="boolean" default="true">
+  Whether saving player data is enabled.
+</ParamField>
+
+<ParamField path="player_data.save_player_cron_interval" type="u64" default="300">
+  Time interval in seconds between automatic player data saves. Default is 5 minutes.
+</ParamField>
+
+## Fun
+
+<ParamField path="fun.april_fools" type="boolean" default="true">
+  Whether April Fools features are enabled.
+</ParamField>
+
+## Example Configuration
+
+```toml features.toml
+[logging]
+enabled = true
+threads = true
+color = true
+timestamp = true
+file = "latest.log"
+
+[resource_pack]
+enabled = false
+url = ""
+sha1 = ""
+prompt_message = ""
+force = false
+
+[world]
+autosave_ticks = 6000
+
+[world.chunk]
+type = "anvil"
+
+[world.chunk.compression]
+algorithm = "LZ4"
+level = 6
+
+[world.chunk]
+write_in_place = false
+
+[world.lighting]
+lighting = "default"
+
+[networking.packet_compression]
+enabled = true
+threshold = 256
+level = 4
+
+[networking.query]
+enabled = true
+address = "0.0.0.0:25565"
+
+[networking.rcon]
+enabled = false
+address = "0.0.0.0:25575"
+password = ""
+max_connections = 0
+
+[commands]
+use_console = true
+use_tty = true
+log_console = true
+default_op_level = "Zero"
+
+[chat]
+format = "<{DISPLAYNAME}> {MESSAGE}"
+
+[pvp]
+enabled = true
+hurt_animation = true
+protect_creative = true
+knockback = true
+swing = true
+
+[player_data]
+save_player_data = true
+save_player_cron_interval = 300
+
+[fun]
+april_fools = true
+```

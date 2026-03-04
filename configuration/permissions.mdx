@@ -1,0 +1,230 @@
+---
+title: Permissions System
+description: Configure operators, whitelists, and permission levels
+---
+
+Pumpkin's permission system controls player access through operators (ops) and whitelists, matching vanilla Minecraft behavior.
+
+## Permission Levels
+
+Pumpkin uses five permission levels (0-4) that determine what commands and actions a player can perform:
+
+<ParamField path="Zero" type="0">
+  **Normal Player** - Can use basic commands only.
+</ParamField>
+
+<ParamField path="One" type="1">
+  **Moderator** - Can bypass spawn protection.
+</ParamField>
+
+<ParamField path="Two" type="2">
+  **Gamemaster** - Can use additional commands and command blocks.
+</ParamField>
+
+<ParamField path="Three" type="3">
+  **Admin** - Can manage multiplayer commands and moderate players.
+</ParamField>
+
+<ParamField path="Four" type="4">
+  **Owner** - Full access to all commands and server management.
+</ParamField>
+
+## Operators (Ops)
+
+Operators have elevated permissions on the server. The ops list is stored in `ops.json` in the config directory.
+
+### Op Structure
+
+Each operator entry contains:
+
+<ParamField path="uuid" type="Uuid" required>
+  The UUID of the operator.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The username of the operator.
+</ParamField>
+
+<ParamField path="level" type="PermissionLvl" required>
+  The permission level assigned to this operator (Zero through Four).
+</ParamField>
+
+<ParamField path="bypasses_player_limit" type="boolean" required>
+  Whether this operator can join even when the server is full.
+</ParamField>
+
+### Example `ops.json`
+
+```json ops.json
+[
+  {
+    "uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+    "name": "Notch",
+    "level": 4,
+    "bypasses_player_limit": true
+  },
+  {
+    "uuid": "61699b2e-1234-5678-9abc-def012345678",
+    "name": "Moderator",
+    "level": 1,
+    "bypasses_player_limit": false
+  }
+]
+```
+
+### Adding Operators
+
+Use the `/op` command in-game or via console:
+
+```bash
+op <player>
+```
+
+The permission level assigned is controlled by the `op_permission_level` setting in `configuration.toml`:
+
+```toml configuration.toml
+op_permission_level = "Four"  # Default level for /op command
+```
+
+### Default Permission Level
+
+Players **not** in the ops file receive the default permission level, configured in `features.toml`:
+
+```toml features.toml
+[commands]
+default_op_level = "Zero"  # Non-op players get level 0
+```
+
+## Whitelist
+
+The whitelist restricts server access to approved players. The whitelist is stored in `whitelist.json` in the config directory.
+
+### Enabling the Whitelist
+
+Configure whitelist behavior in `configuration.toml`:
+
+<ParamField path="white_list" type="boolean" default="false">
+  Whether the whitelist is enabled. When `true`, only whitelisted players can join.
+</ParamField>
+
+<ParamField path="enforce_whitelist" type="boolean" default="false">
+  Whether to immediately kick non-whitelisted players when the whitelist is enabled.
+  
+  - `true` - Non-whitelisted players are kicked immediately when whitelist is activated
+  - `false` - Non-whitelisted players currently online can stay until they disconnect
+</ParamField>
+
+```toml configuration.toml
+white_list = true
+enforce_whitelist = true
+```
+
+### Whitelist Entry Structure
+
+Each whitelist entry contains:
+
+<ParamField path="uuid" type="Uuid" required>
+  The UUID of the whitelisted player.
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  The username of the whitelisted player.
+</ParamField>
+
+### Example `whitelist.json`
+
+```json whitelist.json
+[
+  {
+    "uuid": "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+    "name": "Notch"
+  },
+  {
+    "uuid": "61699b2e-1234-5678-9abc-def012345678",
+    "name": "TrustedPlayer"
+  }
+]
+```
+
+### Managing the Whitelist
+
+Use these commands to manage the whitelist:
+
+```bash
+# Add a player to the whitelist
+whitelist add <player>
+
+# Remove a player from the whitelist
+whitelist remove <player>
+
+# Enable the whitelist
+whitelist on
+
+# Disable the whitelist
+whitelist off
+
+# Reload the whitelist from disk
+whitelist reload
+
+# List all whitelisted players
+whitelist list
+```
+
+## Permission Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Minimal Permissions" icon="shield-halved">
+    Grant the lowest permission level needed for each role. Not everyone needs level 4 access.
+  </Card>
+  
+  <Card title="Enable Whitelist for Private Servers" icon="lock">
+    Use the whitelist for private or semi-private servers to control who can join.
+  </Card>
+  
+  <Card title="Ops Bypass Player Limit" icon="user-plus">
+    Use `bypasses_player_limit` for trusted admins so they can always join.
+  </Card>
+  
+  <Card title="Regularly Review Access" icon="list-check">
+    Periodically review `ops.json` and `whitelist.json` to remove inactive players.
+  </Card>
+</CardGroup>
+
+## Validation Rules
+
+Pumpkin validates permission configuration on startup:
+
+- Permission levels must be `Zero`, `One`, `Two`, `Three`, or `Four`
+- UUIDs must be valid UUID format
+- When `white_list = true`, only whitelisted players can connect
+- When `enforce_whitelist = true`, non-whitelisted players are kicked immediately
+
+## Manual File Editing
+
+You can manually edit `ops.json` and `whitelist.json` while the server is running, then reload:
+
+```bash
+# Reload whitelist
+whitelist reload
+
+# For ops, restart the server or use /op and /deop commands
+```
+
+<Warning>
+  **JSON Syntax**: Ensure valid JSON syntax when manually editing these files. Invalid JSON will cause the server to fail loading the file.
+</Warning>
+
+## Permission Level Reference
+
+| Level | Name | Abilities |
+|-------|------|----------|
+| 0 | Normal | Basic commands only |
+| 1 | Moderator | Bypass spawn protection |
+| 2 | Gamemaster | Use command blocks, more commands |
+| 3 | Admin | Multiplayer management commands |
+| 4 | Owner | All commands, server management |
+
+## Related Configuration
+
+- [Basic Configuration](/configuration/basic) - Configure `op_permission_level`, `white_list`, `enforce_whitelist`
+- [Advanced Configuration](/configuration/advanced) - Configure `commands.default_op_level`

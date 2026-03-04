@@ -1,0 +1,87 @@
+---
+title: Plugin System Introduction
+description: Overview of the Pumpkin plugin system and its capabilities
+---
+
+## Overview
+
+Pumpkin features a powerful, async-first plugin system that allows you to extend the server with custom functionality. Plugins can:
+
+- Listen and respond to game events
+- Register custom commands
+- Manage permissions
+- Share services between plugins
+- Load dynamically at runtime
+
+## Plugin Architecture
+
+The plugin system is built around several core concepts:
+
+### Plugin Trait
+
+All plugins implement the `Plugin` trait, which provides lifecycle hooks for initialization and cleanup.
+
+### Context
+
+Each plugin receives a `Context` object that provides access to:
+- Server instance
+- Event registration
+- Command registration
+- Permission management
+- Service registry
+- Data folder for persistent storage
+
+### Event System
+
+Plugins can register event handlers to respond to game events like player actions, block changes, and server events. The event system supports:
+- Blocking and non-blocking handlers
+- Priority-based execution order
+- Cancellable events
+
+## Plugin API Version
+
+The current plugin API version is:
+
+```rust
+pub const PLUGIN_API_VERSION: u32 = 2;
+```
+
+This version number is bumped whenever the public plugin API or event layout changes in a way that makes old binary plugins incompatible.
+
+## Plugin Types
+
+Pumpkin supports multiple plugin types through its loader system:
+
+- **Native Plugins**: Rust-based plugins compiled as dynamic libraries
+- **Custom Loaders**: Plugins can register custom loaders for other languages (Lua, JavaScript, etc.)
+
+## Plugin Directory
+
+Plugins are loaded from the `./plugins` directory. Each plugin gets its own data folder at `./plugins/{plugin_name}/` for storing configuration and persistent data.
+
+## Plugin Metadata
+
+Every plugin must provide metadata:
+
+```rust
+pub struct PluginMetadata<'s> {
+    pub name: &'s str,
+    pub version: &'s str,
+    pub authors: &'s str,
+    pub description: &'s str,
+}
+```
+
+## Plugin States
+
+Plugins go through several states during their lifecycle:
+
+- `Loading` - Plugin is being initialized
+- `Loaded` - Plugin loaded successfully and is active
+- `Failed(String)` - Plugin failed to load with error message
+
+## Next Steps
+
+- [Getting Started](/plugins/getting-started) - Create your first plugin
+- [Lifecycle Hooks](/plugins/lifecycle) - Learn about plugin lifecycle
+- [Event System](/plugins/events) - Work with events and handlers

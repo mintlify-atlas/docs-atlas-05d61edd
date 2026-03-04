@@ -1,0 +1,362 @@
+---
+title: Event System
+description: Working with events and event handlers in Pumpkin plugins
+---
+
+## Event System Overview
+
+Pumpkin's event system allows plugins to listen and respond to game events like player actions, block changes, and server events. The system is async-first and supports priority-based execution.
+
+## Event Handler Trait
+
+Implement the `EventHandler` trait to handle specific events:
+
+```rust
+pub trait EventHandler<E: Payload>: Send + Sync {
+    fn handle<'a>(&'a self, server: &'a Arc<Server>, event: &'a E) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut E,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+}
+```
+
+### Non-Blocking Handlers
+
+Use `handle()` for non-blocking event handlers that run in parallel:
+
+```rust
+use std::sync::Arc;
+use pumpkin::plugin::{EventHandler, BoxFuture};
+use pumpkin::plugin::events::player::PlayerJoinEvent;
+use pumpkin::server::Server;
+
+struct JoinHandler;
+
+impl EventHandler<PlayerJoinEvent> for JoinHandler {
+    fn handle<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a PlayerJoinEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            println!("Player {} joined!", event.player.gameprofile.name);
+        })
+    }
+}
+```
+
+### Blocking Handlers
+
+Use `handle_blocking()` for handlers that need to modify events or run sequentially:
+
+```rust
+impl EventHandler<PlayerChatEvent> for ChatFilter {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerChatEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            // Filter profanity from chat messages
+            event.message = filter_profanity(&event.message);
+        })
+    }
+}
+```
+
+## Registering Event Handlers
+
+Register event handlers in your plugin's `on_load` hook:
+
+```rust
+use pumpkin::plugin::EventPriority;
+
+fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+    Box::pin(async move {
+        // Register non-blocking handler
+        context.register_event::<PlayerJoinEvent, _>(
+            Arc::new(JoinHandler),
+            EventPriority::Normal,
+            false, // non-blocking
+        ).await;
+
+        // Register blocking handler with high priority
+        context.register_event::<PlayerChatEvent, _>(
+            Arc::new(ChatFilter),
+            EventPriority::High,
+            true, // blocking
+        ).await;
+
+        Ok(())
+    })
+}
+```
+
+## Event Priorities
+
+Event handlers execute in priority order:
+
+```rust
+pub enum EventPriority {
+    Highest,  // Runs first
+    High,
+    Normal,   // Default priority
+    Low,
+    Lowest,   // Runs last
+}
+```
+
+**Execution order:**
+1. All blocking handlers run first, in priority order (Highest → Lowest)
+2. Then all non-blocking handlers run in parallel
+
+This allows higher-priority handlers to modify events before lower-priority handlers see them.
+
+## Cancellable Events
+
+Many events implement the `Cancellable` trait:
+
+```rust
+pub trait Cancellable: Send + Sync {
+    fn cancelled(&self) -> bool;
+    fn set_cancelled(&mut self, cancelled: bool);
+}
+```
+
+### Cancelling Events
+
+```rust
+impl EventHandler<PlayerChatEvent> for AntiSpam {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerChatEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if is_spam(&event.message) {
+                event.set_cancelled(true);
+            }
+        })
+    }
+}
+```
+
+## Available Events
+
+### Player Events
+
+```rust
+// Player join/leave
+PlayerJoinEvent
+PlayerLeaveEvent
+PlayerLoginEvent
+
+// Player actions
+PlayerChatEvent
+PlayerMoveEvent
+PlayerTeleportEvent
+PlayerInteractEvent
+PlayerInteractEntityEvent
+
+// Player state changes
+PlayerGamemodeChangeEvent
+PlayerChangeWorldEvent
+PlayerPermissionCheckEvent
+ItemHeldEvent
+ChangedMainHandEvent
+ExpChangeEvent
+
+// Custom
+PlayerCustomPayloadEvent
+PlayerCommandSendEvent
+```
+
+### Block Events
+
+```rust
+BlockBreakEvent
+BlockPlaceEvent
+BlockBurnEvent
+BlockGrowEvent
+BlockCanBuildEvent
+```
+
+### World Events
+
+```rust
+ChunkLoadEvent
+ChunkSaveEvent
+ChunkSendEvent
+SpawnChangeEvent
+```
+
+### Server Events
+
+```rust
+ServerCommandEvent
+ServerBroadcastEvent
+```
+
+## Event Examples
+
+### Player Join Handler
+
+```rust
+use pumpkin::plugin::events::player::PlayerJoinEvent;
+
+struct WelcomePlugin;
+
+impl EventHandler<PlayerJoinEvent> for WelcomePlugin {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerJoinEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            // Customize join message
+            event.join_message = TextComponent::text(
+                format!("Welcome {}!", event.player.gameprofile.name)
+            );
+        })
+    }
+}
+```
+
+### Block Break Handler
+
+```rust
+use pumpkin::plugin::events::block::BlockBreakEvent;
+
+struct ProtectionPlugin;
+
+impl EventHandler<BlockBreakEvent> for ProtectionPlugin {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut BlockBreakEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if is_protected_area(&event.block_position) {
+                // Cancel the event to prevent block breaking
+                event.set_cancelled(true);
+                
+                if let Some(player) = &event.player {
+                    // Notify player
+                    send_message(player, "This area is protected!");
+                }
+            }
+        })
+    }
+}
+```
+
+### Chat Handler
+
+```rust
+use pumpkin::plugin::events::player::PlayerChatEvent;
+
+struct ChatPlugin;
+
+impl EventHandler<PlayerChatEvent> for ChatPlugin {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerChatEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            // Log chat message
+            log_chat(&event.player, &event.message);
+            
+            // Modify message with prefix
+            event.message = format!("[Chat] {}", event.message);
+            
+            // Limit recipients (private message)
+            if event.message.starts_with("@") {
+                let recipient_name = event.message.split_whitespace()
+                    .nth(1)
+                    .unwrap_or("");
+                    
+                event.recipients = vec![
+                    find_player(recipient_name).unwrap()
+                ];
+            }
+        })
+    }
+}
+```
+
+## Creating Custom Events
+
+You can create custom events using the `Payload` trait:
+
+```rust
+use std::any::Any;
+use pumpkin::plugin::events::Payload;
+use pumpkin_macros::Event;
+
+#[derive(Event, Clone)]
+pub struct CustomEvent {
+    pub data: String,
+}
+
+impl CustomEvent {
+    pub fn new(data: String) -> Self {
+        Self { data }
+    }
+}
+```
+
+### Firing Custom Events
+
+```rust
+// Fire the event
+let event = CustomEvent::new("test data".to_string());
+let result = plugin_manager.fire(event).await;
+```
+
+## Event Handler Best Practices
+
+### Do's
+
+- Use non-blocking handlers when possible for better performance
+- Use blocking handlers when you need to modify events
+- Set appropriate priorities based on handler dependencies
+- Handle errors gracefully within handlers
+- Keep handlers lightweight and fast
+
+### Don'ts
+
+- Don't perform expensive operations in handlers
+- Don't use blocking I/O in event handlers
+- Don't assume event execution order between same-priority handlers
+- Don't modify events in non-blocking handlers (use handle_blocking)
+- Don't cancel events unless absolutely necessary
+
+## Payload Trait
+
+All events implement the `Payload` trait:
+
+```rust
+pub trait Payload: Send + Sync {
+    fn get_name_static() -> &'static str where Self: Sized;
+    fn get_name(&self) -> &'static str;
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+```
+
+This enables type-safe event downcasting and cross-plugin event sharing.
+
+## Next Steps
+
+- Explore specific event types in the API reference
+- Learn about command registration
+- Study permission system integration
+- Review complete plugin examples

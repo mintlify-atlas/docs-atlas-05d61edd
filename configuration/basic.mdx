@@ -1,0 +1,219 @@
+---
+title: Basic Configuration
+description: Core server settings in configuration.toml
+---
+
+The `configuration.toml` file contains essential settings for running your Pumpkin server. All settings have sensible defaults matching vanilla Minecraft behavior.
+
+## Edition Support
+
+<ParamField path="java_edition" type="boolean" default="true">
+  Whether Java Edition clients are accepted.
+</ParamField>
+
+<ParamField path="java_edition_address" type="SocketAddr" default="0.0.0.0:25565">
+  The address and port to which the Java Edition server will bind.
+  
+  Format: `"IP:PORT"` (e.g., `"0.0.0.0:25565"` for all interfaces, or `"127.0.0.1:25565"` for localhost only)
+</ParamField>
+
+<ParamField path="bedrock_edition" type="boolean" default="true">
+  Whether Bedrock Edition clients are accepted.
+</ParamField>
+
+<ParamField path="bedrock_edition_address" type="SocketAddr" default="0.0.0.0:19132">
+  The address and port to which the Bedrock Edition server will bind.
+  
+  Format: `"IP:PORT"`
+</ParamField>
+
+## World Settings
+
+<ParamField path="seed" type="Seed" default="random">
+  The seed for world generation. Can be a number or string. If not specified, a random seed is generated.
+  
+  Example: `seed = "12345"` or `seed = "MyWorld"`
+</ParamField>
+
+<ParamField path="default_level_name" type="string" default="world">
+  The name of the default world folder.
+</ParamField>
+
+<ParamField path="allow_nether" type="boolean" default="true">
+  Whether the Nether dimension is enabled.
+</ParamField>
+
+<ParamField path="allow_end" type="boolean" default="true">
+  Whether the End dimension is enabled.
+</ParamField>
+
+<ParamField path="default_difficulty" type="Difficulty" default="Normal">
+  The default game difficulty.
+  
+  Valid values:
+  - `"Peaceful"` - No hostile mobs, natural health regeneration
+  - `"Easy"` - Hostile mobs deal reduced damage
+  - `"Normal"` - Standard difficulty
+  - `"Hard"` - Increased mob damage, limited health regen
+</ParamField>
+
+<ParamField path="hardcore" type="boolean" default="false">
+  Whether the server is in hardcore mode.
+</ParamField>
+
+## Player Settings
+
+<ParamField path="max_players" type="u32" default="1000">
+  The maximum number of players allowed on the server.
+  
+  Set to `0` to disable the limit.
+</ParamField>
+
+<ParamField path="view_distance" type="NonZeroU8" default="16">
+  The maximum view distance for players in chunks.
+  
+  **Validation**: Must be between 2 and 64 (inclusive).
+</ParamField>
+
+<ParamField path="simulation_distance" type="NonZeroU8" default="10">
+  The maximum simulation distance in chunks. Determines how far away from players entities and blocks are updated.
+</ParamField>
+
+<ParamField path="default_gamemode" type="GameMode" default="Survival">
+  The default gamemode for players.
+  
+  Valid values:
+  - `"Survival"` - Standard survival mode
+  - `"Creative"` - Unlimited resources, flying, invulnerable
+  - `"Adventure"` - Cannot break blocks without proper tools
+  - `"Spectator"` - Fly through blocks, observe without interacting
+</ParamField>
+
+<ParamField path="force_gamemode" type="boolean" default="false">
+  If enabled, the server forces the default gamemode when players join.
+</ParamField>
+
+## Authentication & Security
+
+<ParamField path="online_mode" type="boolean" default="true">
+  Whether online mode is enabled. When enabled, requires valid Minecraft accounts.
+  
+  **Validation**: When `true`, `encryption` must also be `true`.
+</ParamField>
+
+<ParamField path="encryption" type="boolean" default="true">
+  Whether packet encryption is enabled. Required when online mode is enabled.
+</ParamField>
+
+<ParamField path="allow_chat_reports" type="boolean" default="false">
+  Whether chat messages should be signed, allowing players to report chat messages.
+  
+  **Validation**: Requires `online_mode = true`.
+</ParamField>
+
+<ParamField path="scrub_ips" type="boolean" default="true">
+  Whether to remove IP addresses from logs for privacy.
+</ParamField>
+
+## Server Identity
+
+<ParamField path="motd" type="string" default="A blazingly fast Pumpkin server!">
+  Message of the Day - the server's description displayed on the status screen.
+  
+  Example:
+  ```toml
+  motd = "Welcome to my server!"
+  ```
+</ParamField>
+
+<ParamField path="use_favicon" type="boolean" default="true">
+  Whether to use a server favicon (the icon displayed in the server list).
+</ParamField>
+
+<ParamField path="favicon_path" type="Option<String>" default="None">
+  Optional path to a custom server favicon image.
+  
+  Example:
+  ```toml
+  favicon_path = "icon.png"
+  ```
+</ParamField>
+
+## Whitelist
+
+<ParamField path="white_list" type="boolean" default="false">
+  Whether to enable the whitelist. When enabled, only whitelisted players can join.
+</ParamField>
+
+<ParamField path="enforce_whitelist" type="boolean" default="false">
+  Whether to enforce the whitelist immediately. When enabled, non-whitelisted players are kicked when the whitelist is activated.
+</ParamField>
+
+## Permissions
+
+<ParamField path="op_permission_level" type="PermissionLvl" default="Four">
+  The permission level assigned by the `/op` command.
+  
+  Valid values:
+  - `Zero` - Normal player, basic commands only
+  - `One` - Moderator, can bypass spawn protection
+  - `Two` - Gamemaster, can use command blocks
+  - `Three` - Admin, can manage multiplayer
+  - `Four` - Owner, full access to all commands
+</ParamField>
+
+## Server Performance
+
+<ParamField path="tps" type="f32" default="20.0">
+  The server's ticks per second. Minecraft's default is 20 TPS.
+  
+  <Warning>
+    Changing this value may cause unexpected behavior and is not recommended.
+  </Warning>
+</ParamField>
+
+## Example Configuration
+
+```toml configuration.toml
+# Server Edition Support
+java_edition = true
+java_edition_address = "0.0.0.0:25565"
+bedrock_edition = true
+bedrock_edition_address = "0.0.0.0:19132"
+
+# World Settings
+seed = "MyAwesomeWorld"
+default_level_name = "world"
+allow_nether = true
+allow_end = true
+default_difficulty = "Normal"
+hardcore = false
+
+# Player Settings
+max_players = 100
+view_distance = 12
+simulation_distance = 8
+default_gamemode = "Survival"
+force_gamemode = false
+
+# Authentication & Security
+online_mode = true
+encryption = true
+allow_chat_reports = false
+scrub_ips = true
+
+# Server Identity
+motd = "Welcome to my Pumpkin server!"
+use_favicon = true
+# favicon_path = "icon.png"
+
+# Whitelist
+white_list = false
+enforce_whitelist = false
+
+# Permissions
+op_permission_level = "Four"
+
+# Performance
+tps = 20.0
+```

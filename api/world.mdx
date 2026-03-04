@@ -1,0 +1,426 @@
+---
+title: World and Chunk API
+description: World struct and methods for interacting with chunks, blocks, and entities
+---
+
+## Overview
+
+The `World` struct represents a Minecraft dimension (Overworld, Nether, End) and provides methods for managing chunks, blocks, entities, and world state.
+
+## World Structure
+
+```rust
+pub struct World {
+    pub uuid: Uuid,
+    pub level: Arc<Level>,
+    pub players: ArcSwap<Vec<Arc<Player>>>,
+    pub entities: ArcSwap<Vec<Arc<dyn EntityBase>>>,
+    pub scoreboard: Mutex<Scoreboard>,
+    pub worldborder: Mutex<Worldborder>,
+    pub level_time: Mutex<LevelTime>,
+    pub dimension: Dimension,
+    pub sea_level: i32,
+    pub min_y: i32,
+    pub weather: Mutex<Weather>,
+    pub block_registry: Arc<BlockRegistry>,
+    // ... additional fields
+}
+```
+
+## Block Operations
+
+### get_block
+
+```rust
+pub async fn get_block(&self, pos: &BlockPos) -> &'static Block
+```
+
+Gets the block at a position.
+
+<ParamField path="pos" type="&BlockPos" required>
+  Block position
+</ParamField>
+
+<ResponseField name="returns" type="&'static Block">
+  Block at the position
+</ResponseField>
+
+**Example:**
+```rust
+use pumpkin_util::math::position::BlockPos;
+use pumpkin_util::math::vector3::Vector3;
+
+let pos = BlockPos::new(0, 64, 0);
+let block = world.get_block(&pos).await;
+println!("Block: {:?}", block);
+```
+
+### get_block_state
+
+```rust
+pub async fn get_block_state(&self, pos: &BlockPos) -> &'static BlockState
+```
+
+Gets the block state at a position (includes block properties).
+
+<ParamField path="pos" type="&BlockPos" required>
+  Block position
+</ParamField>
+
+<ResponseField name="returns" type="&'static BlockState">
+  Block state at the position
+</ResponseField>
+
+### set_block
+
+```rust
+pub async fn set_block(
+    &self,
+    pos: BlockPos,
+    block_state_id: BlockStateId,
+    flags: BlockFlags,
+) -> Result<(), ()>
+```
+
+Sets a block at a position.
+
+<ParamField path="pos" type="BlockPos" required>
+  Block position
+</ParamField>
+
+<ParamField path="block_state_id" type="BlockStateId" required>
+  Block state ID to set
+</ParamField>
+
+<ParamField path="flags" type="BlockFlags" required>
+  Flags controlling update behavior (NOTIFY_NEIGHBORS, SEND_TO_CLIENT, etc.)
+</ParamField>
+
+<ResponseField name="returns" type="Result<(), ()>">
+  Ok if successful, Err if failed
+</ResponseField>
+
+**Example:**
+```rust
+use pumpkin_data::Block;
+use pumpkin_world::world::BlockFlags;
+
+let stone_state_id = Block::STONE.default_state_id;
+world.set_block(
+    BlockPos::new(0, 64, 0),
+    stone_state_id,
+    BlockFlags::NOTIFY_NEIGHBORS | BlockFlags::SEND_TO_CLIENT
+).await?;
+```
+
+### get_top_block
+
+```rust
+pub async fn get_top_block(&self, position: Vector2<i32>) -> i32
+```
+
+Gets the Y position of the first non-air block from the top down.
+
+<ParamField path="position" type="Vector2<i32>" required>
+  X and Z coordinates
+</ParamField>
+
+<ResponseField name="returns" type="i32">
+  Y position of the top block
+</ResponseField>
+
+### get_motion_blocking_height
+
+```rust
+pub async fn get_motion_blocking_height(&self, x: i32, z: i32) -> i32
+```
+
+Gets the MOTION_BLOCKING heightmap value for a given XZ position.
+
+<ParamField path="x" type="i32" required>
+  X coordinate
+</ParamField>
+
+<ParamField path="z" type="i32" required>
+  Z coordinate
+</ParamField>
+
+<ResponseField name="returns" type="i32">
+  Height value from motion blocking heightmap
+</ResponseField>
+
+## Player Operations
+
+### get_player_by_name
+
+```rust
+pub fn get_player_by_name(&self, name: &str) -> Option<Arc<Player>>
+```
+
+Finds a player by name in this world.
+
+<ParamField path="name" type="&str" required>
+  Player name
+</ParamField>
+
+<ResponseField name="returns" type="Option<Arc<Player>>">
+  Player if found in this world
+</ResponseField>
+
+### get_player_by_uuid
+
+```rust
+pub fn get_player_by_uuid(&self, id: uuid::Uuid) -> Option<Arc<Player>>
+```
+
+Finds a player by UUID in this world.
+
+<ParamField path="id" type="uuid::Uuid" required>
+  Player UUID
+</ParamField>
+
+<ResponseField name="returns" type="Option<Arc<Player>>">
+  Player if found in this world
+</ResponseField>
+
+## Broadcasting
+
+### broadcast_packet_all
+
+```rust
+pub async fn broadcast_packet_all<P: ClientPacket>(&self, packet: &P)
+```
+
+Broadcasts a packet to all players in this world.
+
+<ParamField path="packet" type="&P: ClientPacket" required>
+  Packet to broadcast
+</ParamField>
+
+### broadcast_message
+
+```rust
+pub async fn broadcast_message(
+    &self,
+    message: &TextComponent,
+    sender_name: &TextComponent,
+    chat_type: u8,
+    target_name: Option<&TextComponent>,
+)
+```
+
+Broadcasts a message to all players in this world.
+
+<ParamField path="message" type="&TextComponent" required>
+  Message to broadcast
+</ParamField>
+
+<ParamField path="sender_name" type="&TextComponent" required>
+  Sender name
+</ParamField>
+
+<ParamField path="chat_type" type="u8" required>
+  Chat type
+</ParamField>
+
+<ParamField path="target_name" type="Option<&TextComponent>">
+  Optional target name
+</ParamField>
+
+## Sound and Particles
+
+### play_sound
+
+```rust
+pub async fn play_sound(
+    &self,
+    sound: Sound,
+    category: SoundCategory,
+    position: &Vector3<f64>,
+)
+```
+
+Plays a sound at a position.
+
+<ParamField path="sound" type="Sound" required>
+  Sound to play
+</ParamField>
+
+<ParamField path="category" type="SoundCategory" required>
+  Sound category (MASTER, BLOCKS, etc.)
+</ParamField>
+
+<ParamField path="position" type="&Vector3<f64>" required>
+  Position to play sound at
+</ParamField>
+
+### spawn_particle
+
+```rust
+pub async fn spawn_particle(
+    &self,
+    position: Vector3<f64>,
+    offset: Vector3<f32>,
+    max_speed: f32,
+    particle_count: i32,
+    particle: Particle,
+)
+```
+
+Spawns particles at a position.
+
+<ParamField path="position" type="Vector3<f64>" required>
+  Particle spawn position
+</ParamField>
+
+<ParamField path="offset" type="Vector3<f32>" required>
+  Offset for particle spread
+</ParamField>
+
+<ParamField path="max_speed" type="f32" required>
+  Maximum particle speed
+</ParamField>
+
+<ParamField path="particle_count" type="i32" required>
+  Number of particles to spawn
+</ParamField>
+
+<ParamField path="particle" type="Particle" required>
+  Particle type
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin_data::particle::Particle;
+use pumpkin_util::math::vector3::Vector3;
+
+world.spawn_particle(
+    Vector3::new(0.0, 64.0, 0.0),
+    Vector3::new(0.5, 0.5, 0.5),
+    0.1,
+    50,
+    Particle::Heart
+).await;
+```
+
+## Entity Management
+
+### spawn_entity
+
+```rust
+pub async fn spawn_entity(&self, entity: Arc<dyn EntityBase>)
+```
+
+Spawns an entity in the world.
+
+<ParamField path="entity" type="Arc<dyn EntityBase>" required>
+  Entity to spawn
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin::entity::Entity;
+use pumpkin_data::entity::EntityType;
+
+let entity = Entity::new(
+    world.clone(),
+    Vector3::new(0.0, 64.0, 0.0),
+    &EntityType::ZOMBIE
+);
+world.spawn_entity(Arc::new(entity)).await;
+```
+
+## Collision Detection
+
+### get_block_collisions
+
+```rust
+pub async fn get_block_collisions(
+    &self,
+    bounding_box: BoundingBox,
+    entity: &dyn EntityBase,
+) -> (Vec<BoundingBox>, Vec<(usize, BlockPos)>)
+```
+
+Gets all block collision boxes intersecting with a bounding box.
+
+<ParamField path="bounding_box" type="BoundingBox" required>
+  Bounding box to check
+</ParamField>
+
+<ParamField path="entity" type="&dyn EntityBase" required>
+  Entity performing the check
+</ParamField>
+
+<ResponseField name="returns" type="(Vec<BoundingBox>, Vec<(usize, BlockPos)>)">
+  Tuple of collision boxes and their positions
+</ResponseField>
+
+### is_space_empty
+
+```rust
+pub async fn is_space_empty(&self, bounding_box: BoundingBox) -> bool
+```
+
+Checks if a space is empty (no collisions).
+
+<ParamField path="bounding_box" type="BoundingBox" required>
+  Bounding box to check
+</ParamField>
+
+<ResponseField name="returns" type="bool">
+  `true` if space is empty, `false` if collisions exist
+</ResponseField>
+
+## Difficulty
+
+### set_difficulty
+
+```rust
+pub fn set_difficulty(&self, difficulty: Difficulty)
+```
+
+Sets the difficulty for this world.
+
+<ParamField path="difficulty" type="Difficulty" required>
+  Difficulty level (Peaceful, Easy, Normal, Hard)
+</ParamField>
+
+## Example: Creating Explosion
+
+```rust
+use pumpkin::world::explosion::Explosion;
+use pumpkin_util::math::vector3::Vector3;
+
+let explosion = Explosion::new(
+    world.clone(),
+    None, // No entity source
+    Vector3::new(0.0, 64.0, 0.0),
+    4.0, // Power
+    true, // Causes fire
+    Explosion::DEFAULT_EXPLOSION
+);
+explosion.explode().await;
+```
+
+## Example: Custom Block Placement
+
+```rust
+use pumpkin_data::Block;
+use pumpkin_world::world::BlockFlags;
+
+// Place a diamond block
+let pos = BlockPos::new(100, 64, 100);
+world.set_block(
+    pos,
+    Block::DIAMOND_BLOCK.default_state_id,
+    BlockFlags::NOTIFY_NEIGHBORS | BlockFlags::SEND_TO_CLIENT
+).await?;
+
+// Play placement sound
+world.play_block_sound(
+    Sound::BlockStonePlace,
+    SoundCategory::Blocks,
+    pos
+).await;
+```

@@ -1,0 +1,390 @@
+---
+title: Contributing Guidelines
+description: How to contribute to Pumpkin development
+---
+
+We appreciate your interest in contributing to Pumpkin! This guide outlines the process for submitting bug reports, feature suggestions, and code changes.
+
+## Getting Started
+
+The easiest way to get started is by asking for help in [our Discord server](https://discord.gg/pumpkinmc).
+
+## Ways to Contribute
+
+### Reporting Bugs
+
+If you encounter a bug:
+
+1. **Search existing issues** first to avoid duplicates
+2. **Open a new issue** if none exists
+3. **Provide clear details**:
+   - Steps to reproduce the bug
+   - Expected vs. actual behavior
+   - Server version and configuration
+   - Relevant logs or error messages
+   - Screenshots or recordings if applicable
+
+### Suggesting Features
+
+Have an idea to improve Pumpkin?
+
+1. **Open an issue** on the tracker
+2. **Describe the feature** in detail:
+   - What problem does it solve?
+   - How should it work?
+   - What are the benefits?
+   - Potential implementation considerations
+
+<Note>
+For large contributions, consider discussing your approach first through an issue, discussion, or on Discord.
+</Note>
+
+### Submitting Pull Requests
+
+Ready to contribute code?
+
+1. **Fork the repository** on GitHub
+2. **Install Rust** from [rust-lang.org](https://www.rust-lang.org/)
+3. **Make your changes** on your local fork
+4. **Test thoroughly** (see requirements below)
+5. **Create a pull request** to the main repository
+
+## Pull Request Requirements
+
+Your CI checks will automatically verify most of these requirements.
+
+### Basic Requirements
+
+All PRs must meet these criteria:
+
+#### Clear Title and Description
+
+**Title**: Use a concise, informative title that clearly communicates the purpose.
+
+**Description**: Provide a comprehensive explanation including:
+- What was changed?
+- Why were these changes necessary?
+- What is the impact of this change?
+- Are there any known issues or limitations?
+- Link to related issues or discussions
+
+#### No Clippy Warnings
+
+All Clippy warnings must be resolved:
+
+```bash
+cargo clippy --all-targets
+```
+
+<Warning>
+Pumpkin's Clippy settings are relatively strict. This ensures code stays clean and consistent.
+</Warning>
+
+Strict linting groups enabled:
+- `all` - All standard Clippy lints
+- `nursery` - Experimental lints
+- `pedantic` - Opinionated lints
+- `cargo` - Cargo-specific lints
+
+Additionally enforced lints:
+- `dbg_macro` - Prevent debug macros in production
+- `print_stdout` / `print_stderr` - Use proper logging
+- `use_self` - Enforce `Self` usage
+- And many more (see `Cargo.toml`)
+
+#### Passing Unit Tests
+
+All tests must pass:
+
+```bash
+cargo test
+```
+
+## Best Practices
+
+### Writing Unit Tests
+
+When adding features or modifying code:
+
+1. **Write tests** to prevent future regressions
+2. **Test edge cases** and error conditions
+3. **Follow Rust testing conventions**
+
+See the [Rust Book's testing chapter](https://doc.rust-lang.org/book/ch11-01-writing-tests.html) for guidance.
+
+Example test structure:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_feature_works() {
+        // Arrange
+        let input = setup_test_data();
+        
+        // Act
+        let result = your_function(input);
+        
+        // Assert
+        assert_eq!(result, expected);
+    }
+}
+```
+
+### Benchmarking
+
+For performance-sensitive changes:
+
+1. **Add benchmarks** using Criterion
+2. **Run before and after** your changes
+3. **Document performance impact** in PR description
+
+Pumpkin uses [Criterion](https://github.com/criterion-rs/criterion.rs) for benchmarking:
+
+```rust
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+
+fn benchmark_function(c: &mut Criterion) {
+    c.bench_function("my_function", |b| {
+        b.iter(|| my_function(black_box(input)))
+    });
+}
+
+criterion_group!(benches, benchmark_function);
+criterion_main!(benches);
+```
+
+Run benchmarks:
+
+```bash
+cargo bench
+```
+
+### Clear Commit Messages
+
+Write descriptive commit messages:
+
+```bash
+# Good
+git commit -m "Add chunk caching to reduce disk I/O"
+git commit -m "Fix off-by-one error in chunk coordinate calculation"
+
+# Bad
+git commit -m "Fix bug"
+git commit -m "Update code"
+```
+
+Commit message format:
+- **First line**: Brief summary (50 chars or less)
+- **Blank line**
+- **Detailed explanation**: Why the change was made, context, etc.
+
+### Code Style
+
+1. **Follow Rust conventions**: Use `cargo fmt` to format code
+2. **Meaningful names**: Use clear, descriptive variable and function names
+3. **Documentation**: Add doc comments for public APIs
+4. **Consistency**: Match existing code style in the area you're modifying
+
+Run formatter:
+
+```bash
+cargo fmt
+```
+
+### Documentation
+
+If your changes introduce new functionality:
+
+1. **Update relevant documentation** at [pumpkinmc.org](https://pumpkinmc.org/)
+2. **Add doc comments** to public APIs:
+   ```rust
+   /// Loads a chunk from disk or generates it if not found.
+   ///
+   /// # Arguments
+   /// * `pos` - The chunk position to load
+   ///
+   /// # Returns
+   /// The loaded or generated chunk data
+   pub async fn load_chunk(&self, pos: Vector2<i32>) -> Result<ChunkData> {
+       // ...
+   }
+   ```
+3. **Update the changelog** if applicable
+
+## Working with Tokio and Rayon
+
+Pumpkin uses a hybrid concurrency model. When working with concurrent code:
+
+### Critical Rules
+
+<Warning>
+**NEVER block the Tokio runtime on Rayon calls!**
+</Warning>
+
+For CPU-intensive tasks:
+
+1. **Use Rayon's thread pool**:
+   - `rayon::spawn`
+   - Parallel iterators (`par_iter`)
+   - Other Rayon primitives
+
+2. **Transfer data asynchronously**:
+   - Use `tokio::sync::mpsc` channels
+   - Never block waiting for Rayon results
+
+### Example: Correct Pattern
+
+See `pumpkin_world::level::Level::fetch_chunks` for a complete example:
+
+```rust
+use tokio::sync::mpsc;
+
+// Create channel for communication
+let (tx, mut rx) = mpsc::channel(100);
+
+// Spawn CPU-intensive work on Rayon
+rayon::spawn(move || {
+    let result = expensive_computation();
+    // Send result through channel (non-blocking)
+    tx.blocking_send(result).ok();
+});
+
+// Receive results on Tokio runtime (async)
+while let Some(result) = rx.recv().await {
+    // Process result asynchronously
+    process(result).await;
+}
+```
+
+### What NOT to Do
+
+```rust
+// ❌ WRONG: Blocking Tokio runtime
+let result = rayon::spawn(|| expensive_computation()).join();
+
+// ❌ WRONG: Blocking on async from Rayon
+rayon::spawn(|| {
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(async_fn())
+});
+
+// ✅ CORRECT: Use channels
+let (tx, rx) = mpsc::channel(1);
+rayon::spawn(move || {
+    tx.blocking_send(expensive_computation()).ok();
+});
+let result = rx.recv().await;
+```
+
+## Coding Standards
+
+### Edition and Version
+
+Pumpkin uses:
+- **Rust Edition**: 2024
+- **Minimum Rust Version**: 1.89
+- **Resolver**: Version 3
+
+### Denied Lints
+
+Some notable lints that will cause build failures:
+
+- `dbg_macro` - Use proper logging instead
+- `print_stdout` / `print_stderr` - Use `tracing` crate
+- `redundant_clone` - Optimize away unnecessary clones
+- `needless_pass_by_ref_mut` - Don't take `&mut` when not needed
+- `use_self` - Use `Self` instead of explicit type names
+
+### Allowed Lints
+
+Some pedantic lints are allowed for practical reasons:
+
+- `cast_precision_loss` - Floating point casts are common
+- `missing_panics_doc` - Not all panics need documentation
+- `missing_errors_doc` - Not all errors need documentation
+- `module_name_repetitions` - Sometimes necessary for clarity
+
+## Development Helpers
+
+### Typo Detection
+
+Use [typos](https://github.com/crate-ci/typos) to catch spelling errors:
+
+```bash
+# Install
+cargo install typos-cli
+
+# Check for typos
+typos
+
+# Auto-fix typos
+typos --write-changes
+```
+
+### Pre-commit Checks
+
+Before committing, run:
+
+```bash
+# Format code
+cargo fmt
+
+# Check for issues
+cargo clippy --all-targets
+
+# Run tests
+cargo test
+
+# Check for typos
+typos
+```
+
+Consider creating a git pre-commit hook:
+
+```bash
+#!/bin/sh
+# .git/hooks/pre-commit
+cargo fmt -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+## Communication
+
+- **Comment on existing issues** to share thoughts and feedback
+- **Ask questions** in issues or on Discord
+- **Reach out to maintainers** if you need assistance
+- **Be respectful** and follow our [Code of Conduct](https://github.com/Pumpkin-MC/Pumpkin/blob/main/CODE_OF_CONDUCT.md)
+
+## Getting Help
+
+- **Discord**: [discord.gg/pumpkinmc](https://discord.gg/pumpkinmc)
+- **Documentation**: [pumpkinmc.org](https://pumpkinmc.org/)
+- **Issue Tracker**: [GitHub Issues](https://github.com/Pumpkin-MC/Pumpkin/issues)
+
+## Release Cycle
+
+Pumpkin is currently in heavy development:
+
+- Active development toward 1.0.0 release
+- See [1.0.0 milestone](https://github.com/Pumpkin-MC/Pumpkin/issues/449)
+- Breaking changes may occur before 1.0.0
+
+## Recognition
+
+Contributors are recognized in:
+- GitHub contributors list
+- Release notes (for significant contributions)
+- Discord community highlights
+
+Thank you for contributing to Pumpkin!
+
+## Next Steps
+
+- [System Architecture](/development/architecture) - Understand the codebase
+- [Building from Source](/development/building) - Set up your environment
+- [Quick Start](/quickstart) - Run Pumpkin locally

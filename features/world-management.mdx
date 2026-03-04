@@ -1,0 +1,293 @@
+---
+title: World Management
+description: World loading, chunk management, generation, and lighting systems
+---
+
+Pumpkin provides comprehensive world management with efficient chunk loading, procedural generation, and dynamic lighting.
+
+## World System
+
+The world system manages blocks, entities, and game logic through the `SimpleWorld` trait.
+
+### Core Features
+
+```rust
+pub trait SimpleWorld: BlockAccessor + Send + Sync {
+    fn set_block_state(
+        self: Arc<Self>,
+        position: &BlockPos,
+        block_state_id: BlockStateId,
+        flags: BlockFlags,
+    ) -> WorldFuture<'_, BlockStateId>;
+    
+    fn update_neighbors(
+        self: Arc<Self>,
+        block_pos: &BlockPos,
+        except: Option<BlockDirection>,
+    ) -> WorldFuture<'_, ()>;
+    
+    fn spawn_from_type(
+        self: Arc<Self>,
+        entity_type: &'static EntityType,
+        position: Vector3<f64>,
+    ) -> WorldFuture<'static, ()>;
+}
+```
+
+Source: `pumpkin-world/src/world.rs:66-93`
+
+### Block Flags
+
+Block state changes are controlled with fine-grained flags:
+
+```rust
+pub struct BlockFlags: u32 {
+    const NOTIFY_NEIGHBORS = 0b000_0000_0001;
+    const NOTIFY_LISTENERS = 0b000_0000_0010;
+    const NOTIFY_ALL = 0b000_0000_0011;
+    const FORCE_STATE = 0b000_0000_0100;
+    const SKIP_DROPS = 0b000_0000_1000;
+    const MOVED = 0b000_0001_0000;
+    const SKIP_REDSTONE_WIRE_STATE_REPLACEMENT = 0b000_0010_0000;
+    const SKIP_BLOCK_ENTITY_REPLACED_CALLBACK = 0b000_0100_0000;
+    const SKIP_BLOCK_ADDED_CALLBACK = 0b000_1000_0000;
+}
+```
+
+Source: `pumpkin-world/src/world.rs:21-49`
+
+These flags control:
+- **Observer Detection**: `NOTIFY_NEIGHBORS` triggers observers and redstone
+- **Client Updates**: `NOTIFY_LISTENERS` sends packets to nearby players
+- **Item Drops**: `SKIP_DROPS` prevents item drops when replacing blocks
+- **Block Entities**: Control callbacks for containers and tile entities
+
+## Level System
+
+The `Level` manages chunks, world generation, and persistence.
+
+### Level Structure
+
+```rust
+pub struct Level {
+    pub seed: Seed,
+    pub block_registry: Arc<dyn BlockRegistryExt>,
+    pub level_folder: LevelFolder,
+    pub lighting_config: LightingEngineConfig,
+    
+    pub loaded_chunks: Arc<DashMap<Vector2<i32>, SyncChunk>>,
+    loaded_entity_chunks: Arc<DashMap<Vector2<i32>, SyncEntityChunk>>,
+    pub chunk_loading: Mutex<ChunkLoading>,
+    
+    pub chunk_saver: Arc<dyn FileIO<Data = SyncChunk>>,
+    pub world_gen: Arc<VanillaGenerator>,
+    pub light_engine: DynamicLightEngine,
+}
+```
+
+Source: `pumpkin-world/src/level.rs:61-84`
+
+### Chunk Loading
+
+Pumpkin uses an efficient chunk system with:
+
+- **Lazy Loading**: Chunks load on-demand when needed
+- **Chunk Watchers**: Reference counting for loaded chunks
+- **Generation Queue**: Async chunk generation
+- **Priority System**: Load order based on player proximity
+
+```rust
+pub type SyncChunk = Arc<ChunkData>;
+pub type SyncEntityChunk = Arc<ChunkEntityData>;
+
+pub struct ChunkLoading {
+    // Internal state for tracking chunk load requests
+}
+```
+
+Source: `pumpkin-world/src/level.rs:49-74`
+
+### Chunk States
+
+Chunks progress through states:
+
+```rust
+pub enum ChunkState {
+    Empty,
+    Loading,
+    Loaded,
+    Generating,
+    Generated,
+    Unloading,
+}
+```
+
+## World Generation
+
+Pumpkin implements vanilla-compatible world generation.
+
+### Generator Types
+
+```rust
+pub fn get_world_gen(seed: Seed, dimension: Dimension) -> Box<VanillaGenerator> {
+    Box::new(VanillaGenerator::new(seed, dimension))
+}
+```
+
+Source: `pumpkin-world/src/generation/mod.rs:32-35`
+
+### Noise-Based Generation
+
+World generation uses multi-layered noise:
+
+- **Perlin Noise**: Base terrain generation
+- **Density Functions**: 3D terrain shaping
+- **Biome Sampling**: Multi-noise biome placement
+- **Aquifer Sampling**: Underground water systems
+- **Ore Veins**: Ore distribution
+
+Source: `pumpkin-world/src/generation/noise/`
+
+### Generation Pipeline
+
+1. **Proto Chunk Creation**: Initial chunk structure
+2. **Noise Sampling**: Generate terrain heightmap
+3. **Surface Rules**: Apply biome-specific surface blocks
+4. **Feature Placement**: Trees, structures, decorations
+5. **Lighting Calculation**: Sky and block light
+6. **Finalization**: Convert to playable chunk
+
+### Structures
+
+Pumpkin generates vanilla structures:
+
+- **Strongholds**: Portal rooms, libraries, corridors
+- **Nether Fortresses**: Bridge networks
+- **Igloos**: Surface and basement variants
+- **Swamp Huts**: Witch huts
+- **Buried Treasure**: Ocean treasure chests
+
+Source: `pumpkin-world/src/generation/structure/structures/`
+
+### Coordinate Systems
+
+Pumpkin uses multiple coordinate systems:
+
+```rust
+pub mod section_coords {
+    pub const fn block_to_section(coord: i32) -> i32 {
+        coord >> 4  // Divide by 16
+    }
+    
+    pub const fn section_to_block(coord: i32) -> i32 {
+        coord << 4  // Multiply by 16
+    }
+}
+
+pub mod biome_coords {
+    pub const fn from_block(coord: i32) -> i32 {
+        coord >> 2  // Divide by 4
+    }
+    
+    pub const fn to_block(coord: i32) -> i32 {
+        coord << 2  // Multiply by 4
+    }
+}
+```
+
+Source: `pumpkin-world/src/generation/mod.rs:71-114`
+
+## Lighting Engine
+
+Dynamic lighting with real-time updates.
+
+### Light Types
+
+- **Sky Light**: Sunlight propagation from sky to ground
+- **Block Light**: Light from torches, lava, glowstone
+
+### Light Engine Features
+
+```rust
+pub struct DynamicLightEngine {
+    // Runtime lighting calculations
+}
+```
+
+Source: `pumpkin-world/src/lighting/mod.rs:4-7`
+
+The lighting engine:
+- Updates light in real-time when blocks change
+- Propagates light through transparent blocks
+- Handles light occlusion correctly
+- Sends only changed sections to clients
+
+## Block Access
+
+Efficient block access through the `BlockAccessor` trait:
+
+```rust
+pub trait BlockAccessor: Send + Sync {
+    fn get_block<'a>(
+        &'a self,
+        position: &'a BlockPos,
+    ) -> Pin<Box<dyn Future<Output = &'static Block> + Send + 'a>>;
+    
+    fn get_block_state<'a>(
+        &'a self,
+        position: &'a BlockPos,
+    ) -> Pin<Box<dyn Future<Output = &'static BlockState> + Send + 'a>>;
+    
+    fn get_block_state_id<'a>(
+        &'a self,
+        position: &'a BlockPos,
+    ) -> Pin<Box<dyn Future<Output = BlockStateId> + Send + 'a>>;
+}
+```
+
+Source: `pumpkin-world/src/world.rs:167-182`
+
+## World Saving
+
+Pumpkin supports multiple save formats:
+
+### Anvil Format
+
+Standard Minecraft region file format:
+- Region files (32x32 chunks)
+- NBT-compressed chunk data
+- Compatible with vanilla Minecraft
+
+Source: `pumpkin-world/src/chunk/format/anvil.rs`
+
+### Linear Format
+
+Optimized custom format:
+- Faster read/write performance
+- Better compression
+- Backwards compatible conversion
+
+Source: `pumpkin-world/src/chunk/format/linear.rs`
+
+### Autosave
+
+```rust
+pub struct Level {
+    pub should_save: AtomicBool,
+    pub autosave_ticks: u64,
+}
+```
+
+Source: `pumpkin-world/src/level.rs:93-96`
+
+Autosave periodically saves modified chunks to disk.
+
+## Performance Features
+
+- **Async Chunk I/O**: Non-blocking chunk loading/saving
+- **Chunk Caching**: DashMap for concurrent access
+- **Task Tracking**: Tokio TaskTracker for cleanup
+- **Cancellation Tokens**: Graceful shutdown
+- **Generation Caching**: Reuse generated chunk data
+
+Source: `pumpkin-world/src/level.rs:87-103`

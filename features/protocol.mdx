@@ -1,0 +1,220 @@
+---
+title: Protocol Support
+description: Java and Bedrock protocol implementation with encryption and compression
+---
+
+Pumpkin implements robust protocol support for both Minecraft Java Edition and Bedrock Edition, providing secure and efficient network communication.
+
+## Java Protocol
+
+The Java protocol implementation supports the latest Minecraft versions with full packet encoding/decoding capabilities.
+
+### Connection States
+
+Pumpkin manages distinct connection states throughout the client lifecycle:
+
+```rust
+pub enum ConnectionState {
+    HandShake,
+    Status,
+    Login,
+    Transfer,
+    Config,
+    Play,
+}
+```
+
+Source: `pumpkin-protocol/src/lib.rs:54`
+
+### Packet Encoding
+
+The `TCPNetworkEncoder` handles outbound packets with support for:
+
+- **Compression**: ZLib compression with configurable thresholds
+- **Encryption**: AES-128 CFB-8 encryption
+- **Size Limits**: Maximum packet size of 2,097,152 bytes
+
+#### Compression
+
+Packets exceeding the compression threshold are automatically compressed:
+
+```rust
+pub const MAX_PACKET_SIZE: u64 = 2_097_152;
+pub const MAX_PACKET_DATA_SIZE: usize = 8_388_608;
+
+pub type CompressionThreshold = usize;
+pub type CompressionLevel = u32;
+```
+
+Source: `pumpkin-protocol/src/lib.rs:35-51`
+
+#### Encryption
+
+AES-128 CFB-8 stream encryption is applied to secure client-server communication:
+
+```rust
+type Aes128Cfb8Enc = cfb8::Encryptor<aes::Aes128>;
+
+pub struct StreamEncryptor<W: AsyncWrite + Unpin> {
+    cipher: Aes128Cfb8Enc,
+    write: W,
+    last_unwritten_encrypted_byte: Option<u8>,
+}
+```
+
+Source: `pumpkin-protocol/src/lib.rs:227-234`
+
+### Packet Decoding
+
+The `TCPNetworkDecoder` handles inbound packets with automatic:
+
+- **Decryption**: AES-128 CFB-8 decryption
+- **Decompression**: ZLib decompression
+- **Validation**: Packet length and integrity checks
+
+Packet format without compression:
+```
+|-----------------------|
+| Packet Length (VarInt)|
+|-----------------------|
+| Packet ID (VarInt)    |
+|-----------------------|
+| Data (Byte Array)     |
+|-----------------------|
+```
+
+Packet format with compression:
+```
+|------------------------|
+| Packet Length (VarInt) |
+|------------------------|
+| Data Length (VarInt)   |
+|------------------------|
+| Packet ID (VarInt)     |
+|------------------------|
+| Data (Byte Array)      |
+|------------------------|
+```
+
+Source: `pumpkin-protocol/src/java/packet_encoder.rs:171-192`
+
+### Server-Bound Packets
+
+Pumpkin supports all major server-bound packets including:
+
+- **Handshake**: Initial connection handshake
+- **Status**: Server list ping and status requests
+- **Login**: Authentication and encryption setup
+- **Play**: Game actions (movement, chat, inventory, combat)
+- **Configuration**: Client configuration and resource packs
+
+Examples:
+- `SPlayerPosition` - Player movement
+- `SChatCommand` - Command execution
+- `SClickContainer` - Inventory interactions
+- `SPlayerAction` - Block breaking/placing
+- `SInteract` - Entity interactions
+
+Source: `pumpkin-protocol/src/java/server/play/`
+
+### Client-Bound Packets
+
+Pumpkin sends client-bound packets for:
+
+- **World State**: Chunk data, block updates, world events
+- **Entity Updates**: Spawn, movement, metadata, removal
+- **Player State**: Health, inventory, experience, abilities
+- **UI**: Chat messages, titles, boss bars, scoreboards
+
+Examples:
+- `CChunkData` - Chunk transmission
+- `CSpawnEntity` - Entity spawning
+- `CSystemChatMessage` - Chat messages
+- `CSetHealth` - Player health updates
+- `CUpdateEntityPos` - Entity position updates
+
+Source: `pumpkin-protocol/src/java/client/play/`
+
+## Bedrock Protocol
+
+Pumpkin includes Bedrock Edition protocol support for cross-platform compatibility.
+
+### Bedrock Packets
+
+Bedrock protocol implementation includes:
+
+- **Chunk Radius Updates**: `ChunkRadiusUpdatedPacket`
+- **Container Management**: `ContainerOpenPacket`
+- **Movement Prediction**: `CorrectPlayerMovePredictionPacket`
+- **Creative Content**: Network item descriptors
+
+Source: `pumpkin-protocol/src/bedrock/`
+
+### Network Item Descriptors
+
+Bedrock uses specialized network item descriptors for cross-platform item representation:
+
+```rust
+use bedrock::network_item::NetworkItemDescriptor;
+```
+
+Source: `pumpkin-protocol/src/bedrock/client/creative_content.rs`
+
+### Protocol Differences
+
+Key differences between Java and Bedrock protocols:
+
+| Feature | Java Edition | Bedrock Edition |
+|---------|-------------|----------------|
+| Packet Format | VarInt length prefix | Frame-based |
+| Encryption | AES-128 CFB-8 | RakNet encryption |
+| Compression | ZLib | RakNet compression |
+| Position Format | Absolute coordinates | Network block positions |
+
+## Status Response
+
+Server list status response provides:
+
+```rust
+pub struct StatusResponse {
+    pub version: Option<Version>,
+    pub players: Option<Players>,
+    pub description: String,
+    pub favicon: Option<String>,
+    pub enforce_secure_chat: bool,
+}
+```
+
+Source: `pumpkin-protocol/src/lib.rs:369-381`
+
+## Error Handling
+
+Pumpkin defines comprehensive error types:
+
+```rust
+pub enum PacketEncodeError {
+    TooLong(usize),
+    CompressionFailed(String),
+    Message(String),
+}
+
+pub enum PacketDecodeError {
+    DecodeID,
+    TooLong,
+    OutOfBounds,
+    MalformedLength(String),
+    FailedDecompression(String),
+    NotCompressed,
+    ConnectionClosed,
+}
+```
+
+Source: `pumpkin-protocol/src/lib.rs:335-361`
+
+## Performance Optimizations
+
+- **Reused Buffers**: Compression scratch buffers are reused to avoid allocations
+- **Streaming Encryption**: Encryption is applied during write without additional buffering
+- **Async I/O**: Full Tokio async support for non-blocking network operations
+
+Source: `pumpkin-protocol/src/java/packet_encoder.rs:88-100`

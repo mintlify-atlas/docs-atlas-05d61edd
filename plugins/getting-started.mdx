@@ -1,0 +1,171 @@
+---
+title: Getting Started
+description: Create your first Pumpkin plugin
+---
+
+## Creating Your First Plugin
+
+This guide walks you through creating a basic Pumpkin plugin in Rust.
+
+## Prerequisites
+
+- Rust toolchain installed
+- Basic understanding of Rust and async programming
+- Pumpkin server source code
+
+## Project Setup
+
+### 1. Create a New Library
+
+Create a new Rust library project:
+
+```bash
+cargo new --lib my_plugin
+cd my_plugin
+```
+
+### 2. Configure Cargo.toml
+
+Set up your `Cargo.toml` to build a dynamic library:
+
+```toml
+[package]
+name = "my_plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Add Pumpkin dependencies here
+```
+
+## Implementing the Plugin
+
+### Basic Plugin Structure
+
+Here's a minimal plugin implementation:
+
+```rust
+use std::sync::Arc;
+use pumpkin::plugin::{
+    Plugin, PluginMetadata, PluginFuture, Context
+};
+
+pub struct MyPlugin;
+
+impl Plugin for MyPlugin {
+    fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            context.log("MyPlugin loaded!");
+            Ok(())
+        })
+    }
+
+    fn on_unload(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            context.log("MyPlugin unloaded!");
+            Ok(())
+        })
+    }
+}
+```
+
+### Plugin Metadata
+
+Define your plugin's metadata:
+
+```rust
+pub const METADATA: PluginMetadata<'static> = PluginMetadata {
+    name: "MyPlugin",
+    version: "0.1.0",
+    authors: "Your Name",
+    description: "My first Pumpkin plugin",
+};
+```
+
+### Plugin Entry Point
+
+Export a function to create your plugin instance:
+
+```rust
+#[no_mangle]
+pub extern "C" fn create_plugin() -> Box<dyn Plugin> {
+    Box::new(MyPlugin)
+}
+
+#[no_mangle]
+pub extern "C" fn get_metadata() -> PluginMetadata<'static> {
+    METADATA
+}
+```
+
+## Working with Context
+
+The `Context` object provides access to server functionality:
+
+```rust
+fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+    Box::pin(async move {
+        // Log messages
+        context.log("Plugin initializing...");
+
+        // Access server
+        let server = &context.server;
+
+        // Get data folder
+        let data_folder = context.get_data_folder();
+        
+        // Get player by name
+        if let Some(player) = context.get_player_by_name("PlayerName") {
+            // Do something with player
+        }
+
+        Ok(())
+    })
+}
+```
+
+## Building Your Plugin
+
+Compile your plugin:
+
+```bash
+cargo build --release
+```
+
+The compiled library will be in `target/release/`:
+- Linux: `libmy_plugin.so`
+- Windows: `my_plugin.dll`
+- macOS: `libmy_plugin.dylib`
+
+## Installing the Plugin
+
+1. Copy the compiled library to the Pumpkin server's `plugins/` directory
+2. Start or reload the server
+3. Check the logs to verify your plugin loaded successfully
+
+## Error Handling
+
+Return errors from lifecycle hooks when initialization fails:
+
+```rust
+fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+    Box::pin(async move {
+        // Validate configuration
+        if !some_condition {
+            return Err("Configuration validation failed".to_string());
+        }
+
+        context.log("Plugin loaded successfully");
+        Ok(())
+    })
+}
+```
+
+## Next Steps
+
+- [Plugin Lifecycle](/plugins/lifecycle) - Learn about lifecycle hooks in detail
+- [Event System](/plugins/events) - Register event handlers
+- Explore the plugin API reference

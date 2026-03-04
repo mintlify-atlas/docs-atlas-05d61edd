@@ -1,0 +1,501 @@
+---
+title: Command System
+description: Powerful command framework with built-in commands and extensibility
+---
+
+Pumpkin features a comprehensive command system supporting all standard Minecraft commands with proper permission handling and suggestion support.
+
+## Command Framework
+
+Commands are built using a declarative tree structure.
+
+### Command Structure
+
+```rust
+pub struct CommandTree {
+    pub names: &'static [&'static str],
+    pub description: &'static str,
+    // Internal node structure
+}
+```
+
+Source: `pumpkin/src/command/tree/`
+
+### Building Commands
+
+Commands use a builder pattern:
+
+```rust
+CommandTree::new(NAMES, DESCRIPTION)
+    .then(
+        argument(ARG_NAME, ArgumentConsumer)
+            .execute(Executor)
+    )
+```
+
+Source: `pumpkin/src/command/tree/builder.rs`
+
+## Command Senders
+
+Commands can be executed from multiple sources:
+
+```rust
+pub enum CommandSender {
+    Rcon(Arc<tokio::sync::Mutex<Vec<String>>>),
+    Console,
+    Player(Arc<Player>),
+    CommandBlock(Arc<CommandBlockEntity>, Arc<World>),
+    Dummy,
+}
+```
+
+Source: `pumpkin/src/command/mod.rs:38-62`
+
+Each sender has:
+- **Permission Level**: 0-4 (player to console)
+- **Position**: Optional world coordinates
+- **World Context**: Current world reference
+
+## Permission System
+
+Permission levels match vanilla Minecraft:
+
+```rust
+pub enum PermissionLvl {
+    Zero,   // All players
+    One,    // Moderators
+    Two,    // Game masters
+    Three,  // Admins
+    Four,   // Operators/Console
+}
+```
+
+Permission checks:
+```rust
+sender.has_permission_lvl(PermissionLvl::Two)
+sender.has_permission(server, "pumpkin.command.gamemode").await
+```
+
+Source: `pumpkin/src/command/mod.rs:125-160`
+
+## Built-in Commands
+
+Pumpkin implements 51 standard commands:
+
+### Player Management
+
+#### /gamemode
+Change player gamemode.
+
+```rust
+const NAMES: [&str; 1] = ["gamemode"];
+```
+
+Usage:
+- `/gamemode <mode>` - Change your gamemode
+- `/gamemode <mode> <player>` - Change another player's gamemode
+
+Modes: `survival`, `creative`, `adventure`, `spectator`
+
+Source: `pumpkin/src/command/commands/gamemode.rs`
+
+#### /teleport (tp)
+Teleport entities to locations.
+
+```rust
+const NAMES: [&str; 2] = ["teleport", "tp"];
+```
+
+Usage:
+- `/tp <destination>` - Teleport to entity
+- `/tp <x> <y> <z>` - Teleport to coordinates
+- `/tp <targets> <destination>` - Teleport others
+- `/tp <x> <y> <z> facing <facingX> <facingY> <facingZ>` - With rotation
+
+Source: `pumpkin/src/command/commands/teleport.rs`
+
+#### /give
+Give items to players.
+
+```rust
+const NAMES: [&str; 1] = ["give"];
+```
+
+Usage:
+- `/give <player> <item>` - Give 1 item
+- `/give <player> <item> <count>` - Give multiple items
+
+Source: `pumpkin/src/command/commands/give.rs:17-19`
+
+#### /clear
+Clear player inventory.
+
+Source: `pumpkin/src/command/commands/clear.rs`
+
+#### /experience (xp)
+Manage player experience.
+
+Source: `pumpkin/src/command/commands/experience.rs`
+
+#### /kill
+Kill entities.
+
+Source: `pumpkin/src/command/commands/kill.rs`
+
+### World Manipulation
+
+#### /setblock
+Place a block at coordinates.
+
+Source: `pumpkin/src/command/commands/setblock.rs`
+
+#### /fill
+Fill a region with blocks.
+
+Source: `pumpkin/src/command/commands/fill.rs`
+
+#### /setworldspawn
+Set the world spawn point.
+
+Source: `pumpkin/src/command/commands/setworldspawn.rs`
+
+#### /spawnpoint
+Set player spawn point.
+
+Source: `pumpkin/src/command/commands/spawnpoint.rs`
+
+#### /seed
+Display world seed.
+
+Source: `pumpkin/src/command/commands/seed.rs`
+
+#### /worldborder
+Manage world border.
+
+Source: `pumpkin/src/command/commands/worldborder.rs`
+
+### Entity Commands
+
+#### /summon
+Summon an entity.
+
+Source: `pumpkin/src/command/commands/summon.rs`
+
+#### /damage
+Damage an entity.
+
+Source: `pumpkin/src/command/commands/damage.rs`
+
+#### /enchant
+Enchant player's held item.
+
+Source: `pumpkin/src/command/commands/enchant.rs`
+
+#### /effect
+Manage status effects.
+
+Source: `pumpkin/src/command/commands/effect.rs`
+
+#### /rotate
+Rotate entities.
+
+Source: `pumpkin/src/command/commands/rotate.rs`
+
+### Communication
+
+#### /say
+Broadcast a message.
+
+Source: `pumpkin/src/command/commands/say.rs`
+
+#### /msg (tell, w)
+Send private message.
+
+Source: `pumpkin/src/command/commands/msg.rs`
+
+#### /me
+Display action message.
+
+Source: `pumpkin/src/command/commands/me.rs`
+
+#### /tellraw
+Send JSON text component.
+
+Source: `pumpkin/src/command/commands/tellraw.rs`
+
+#### /title
+Display titles and subtitles.
+
+Source: `pumpkin/src/command/commands/title.rs`
+
+### Server Management
+
+#### /stop
+Stop the server.
+
+Source: `pumpkin/src/command/commands/stop.rs`
+
+#### /kick
+Kick a player.
+
+Source: `pumpkin/src/command/commands/kick.rs`
+
+#### /ban
+Ban a player.
+
+Source: `pumpkin/src/command/commands/ban.rs`
+
+#### /banip
+Ban an IP address.
+
+Source: `pumpkin/src/command/commands/banip.rs`
+
+#### /pardon
+Unban a player.
+
+Source: `pumpkin/src/command/commands/pardon.rs`
+
+#### /pardonip
+Unban an IP address.
+
+Source: `pumpkin/src/command/commands/pardonip.rs`
+
+#### /banlist
+View ban list.
+
+Source: `pumpkin/src/command/commands/banlist.rs`
+
+#### /whitelist
+Manage whitelist.
+
+Source: `pumpkin/src/command/commands/whitelist.rs`
+
+#### /op
+Grant operator status.
+
+Source: `pumpkin/src/command/commands/op.rs`
+
+#### /deop
+Revoke operator status.
+
+Source: `pumpkin/src/command/commands/deop.rs`
+
+#### /list
+List online players.
+
+Source: `pumpkin/src/command/commands/list.rs`
+
+#### /setidletimeout
+Set AFK kick timeout.
+
+Source: `pumpkin/src/command/commands/setidletimeout.rs`
+
+#### /transfer
+Transfer player to another server.
+
+Source: `pumpkin/src/command/commands/transfer.rs`
+
+### Game Rules
+
+#### /gamerule
+Modify game rules.
+
+Source: `pumpkin/src/command/commands/gamerule.rs`
+
+#### /difficulty
+Set world difficulty.
+
+Source: `pumpkin/src/command/commands/difficulty.rs`
+
+#### /defaultgamemode
+Set default gamemode.
+
+Source: `pumpkin/src/command/commands/defaultgamemode.rs`
+
+### Time & Weather
+
+#### /time
+Manage world time.
+
+Source: `pumpkin/src/command/commands/time.rs`
+
+#### /weather
+Change weather.
+
+Source: `pumpkin/src/command/commands/weather.rs`
+
+#### /tick
+Control tick rate.
+
+Source: `pumpkin/src/command/commands/tick.rs`
+
+### Audio & Visual
+
+#### /playsound
+Play a sound.
+
+Source: `pumpkin/src/command/commands/playsound.rs`
+
+#### /stopsound
+Stop playing sounds.
+
+Source: `pumpkin/src/command/commands/stopsound.rs`
+
+#### /particle
+Spawn particle effects.
+
+Source: `pumpkin/src/command/commands/particle.rs`
+
+### UI Elements
+
+#### /bossbar
+Manage boss bars.
+
+Source: `pumpkin/src/command/commands/bossbar.rs`
+
+### Data Commands
+
+#### /data
+Manage entity/block NBT data.
+
+Source: `pumpkin/src/command/commands/data.rs`
+
+### Debugging
+
+#### /help
+Display command help.
+
+Source: `pumpkin/src/command/commands/help.rs`
+
+#### /tps
+Display server TPS (ticks per second).
+
+Source: `pumpkin/src/command/commands/tps.rs`
+
+#### /pumpkin
+Pumpkin server information.
+
+Source: `pumpkin/src/command/commands/pumpkin.rs`
+
+### Plugins
+
+#### /plugins
+List loaded plugins.
+
+Source: `pumpkin/src/command/commands/plugins.rs`
+
+#### /plugin
+Manage individual plugins.
+
+Source: `pumpkin/src/command/commands/plugin.rs`
+
+## Command Arguments
+
+Rich argument types with validation:
+
+### Position Arguments
+
+```rust
+Position3DArgumentConsumer  // 3D coordinates
+Position2DArgumentConsumer  // 2D coordinates  
+PositionBlockArgumentConsumer  // Block positions
+```
+
+Supports:
+- Absolute: `100 64 200`
+- Relative: `~5 ~-3 ~10`
+- Local: `^1 ^0 ^-2`
+
+Source: `pumpkin/src/command/args/`
+
+### Entity Selectors
+
+```rust
+EntityArgumentConsumer   // Single entity
+EntitiesArgumentConsumer // Multiple entities
+PlayersArgumentConsumer  // Player-only selector
+```
+
+Selector syntax:
+- `@p` - Nearest player
+- `@a` - All players
+- `@e` - All entities
+- `@s` - Self
+- `@r` - Random player
+
+With filters: `@e[type=zombie,distance=..10]`
+
+Source: `pumpkin/src/command/args/`
+
+### Resource Arguments
+
+```rust
+ItemArgumentConsumer       // Items
+EnchantmentArgumentConsumer // Enchantments
+EffectArgumentConsumer     // Status effects
+ParticleArgumentConsumer   // Particles
+DamageTypeArgumentConsumer // Damage types
+```
+
+Source: `pumpkin/src/command/args/resource/`
+
+### Other Arguments
+
+- **GameMode**: Gamemode selection
+- **Difficulty**: Difficulty level
+- **Rotation**: Yaw/pitch angles
+- **TextComponent**: JSON text
+- **Message**: Chat message
+- **Time**: Time values (ticks/seconds/days)
+- **BoundedNum**: Numbers with min/max
+
+Source: `pumpkin/src/command/args/`
+
+## Tab Completion
+
+Automatic tab completion for:
+- Command names
+- Argument values
+- Player names
+- Item IDs
+- Entity types
+- Block states
+
+Source: `pumpkin/src/command/client_suggestions.rs`
+
+## Error Handling
+
+```rust
+pub enum CommandError {
+    InvalidRequirement,
+    InvalidConsumption(Option<String>),
+    CommandFailed(TextComponent),
+    OtherError(String),
+}
+```
+
+Source: `pumpkin/src/command/dispatcher.rs`
+
+Errors provide:
+- Localized error messages
+- Argument validation feedback
+- Permission denied notices
+
+## Command Execution
+
+Asynchronous command execution:
+
+```rust
+pub trait CommandExecutor {
+    fn execute<'a>(
+        &'a self,
+        sender: &'a CommandSender,
+        server: &'a Server,
+        args: &'a ConsumedArgs<'a>,
+    ) -> CommandResult<'a>;
+}
+```
+
+Returns success count for command blocks.
+
+Source: `pumpkin/src/command/mod.rs`

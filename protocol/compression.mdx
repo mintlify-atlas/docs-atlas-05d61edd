@@ -1,0 +1,558 @@
+---
+title: Packet Compression
+description: Zlib compression implementation for bandwidth optimization
+---
+
+Pumpkin implements Zlib compression to reduce bandwidth usage for large packets, automatically compressing data above a configurable threshold.
+
+## Compression Implementation
+
+Compression is implemented for Java Edition connections using the Zlib algorithm.
+
+### Dependencies
+
+Defined in `pumpkin-protocol/Cargo.toml:30-32`
+
+```toml
+# compression
+async-compression = { workspace = true, features = ["tokio", "zlib"] }
+flate2.workspace = true
+```
+
+- **async-compression**: Async zlib compression/decompression
+- **flate2**: Synchronous zlib compression for testing
+
+## Compression Types
+
+Defined in `pumpkin-protocol/src/lib.rs:40-51`
+
+```rust
+/// Minimum packet size that should be compressed
+pub type CompressionThreshold = usize;
+
+/// Compression level (0-9)
+/// Higher levels = better compression but more CPU usage
+pub type CompressionLevel = u32;
+```
+
+### Compression Threshold
+
+Packets smaller than the threshold are sent uncompressed. Typical value: **256 bytes**
+
+### Compression Level
+
+Controls the compression ratio vs CPU usage tradeoff:
+
+- **0**: No compression
+- **1**: Fastest, least compression
+- **6**: Default balance (recommended)
+- **9**: Best compression, slowest
+
+## Encoder Compression
+
+The `TCPNetworkEncoder` compresses outgoing packets when they exceed the threshold.
+
+### Compression State
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:83-90`
+
+```rust
+pub struct TCPNetworkEncoder<W: AsyncWrite + Unpin> {
+    writer: EncryptionWriter<W>,
+    compression: Option<(CompressionThreshold, CompressionLevel)>,
+    compressor: Option<(CompressionLevel, Compress)>,
+    compression_scratch: Vec<u8>,
+}
+```
+
+### Fields
+
+- **compression**: Optional compression settings
+- **compressor**: Reusable zlib compressor state
+- **compression_scratch**: Reusable buffer for compressed data
+
+### Enabling Compression
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:103-108`
+
+```rust
+pub const fn set_compression(
+    &mut self,
+    compression_info: (CompressionThreshold, CompressionLevel),
+) {
+    self.compression = Some(compression_info);
+}
+```
+
+Example:
+```rust
+// Compress packets > 256 bytes with level 6
+encoder.set_compression((256, 6));
+```
+
+### Compression Algorithm
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:119-165`
+
+```rust
+fn compress_packet_data(
+    &mut self,
+    packet_data: &[u8],
+    compression_level: CompressionLevel,
+) -> Result<(), PacketEncodeError> {
+    // Clear and reserve buffer
+    self.compression_scratch.clear();
+    let reserve_hint = packet_data.len()
+        .saturating_add(packet_data.len() / 16)
+        .saturating_add(64);
+    self.compression_scratch.reserve(reserve_hint);
+    
+    // Reuse or create compressor
+    if self.compressor.is_none() || self.compressor.level != compression_level {
+        self.compressor = Some((
+            compression_level,
+            Compress::new(Compression::new(compression_level), true),
+        ));
+    }
+    
+    // Compress data
+    let (_, compressor) = self.compressor.as_mut().unwrap();
+    compressor.reset();
+    let status = compressor.compress_vec(
+        packet_data,
+        &mut self.compression_scratch,
+        FlushCompress::Finish,
+    )?;
+    
+    if !matches!(status, Status::StreamEnd) {
+        return Err(PacketEncodeError::CompressionFailed(
+            format!("Unexpected compressor status: {status:?}")
+        ));
+    }
+    
+    Ok(())
+}
+```
+
+### Buffer Reuse
+
+The encoder reuses compression buffers to minimize allocations:
+
+1. Compression scratch buffer is cleared but capacity retained
+2. Compressor state is reset and reused for same compression level
+3. New compressor only created when level changes
+
+## Compressed Packet Format
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:182-191`
+
+### Format
+
+```
+|-------------------------|
+| Packet Length (VarInt)  | - Total length excluding this field
+|-------------------------|
+| Data Length (VarInt)    | - Uncompressed data length (or 0 if not compressed)
+|-------------------------|
+| Compressed Data         | - Zlib compressed (Packet ID + Data)
+|-------------------------|
+```
+
+### Encoding Logic
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:215-285`
+
+```rust
+if let Some((compression_threshold, compression_level)) = self.compression {
+    if data_len >= compression_threshold {
+        // COMPRESSED PATH
+        
+        // Compress packet_id + data
+        self.compress_packet_data(packet_data.as_ref(), compression_level)?;
+        
+        let data_len_varint: VarInt = data_len.try_into()?;
+        let full_packet_len = data_len_varint.written_size() 
+            + self.compression_scratch.len();
+        
+        // Write: packet_length | data_length | compressed_data
+        full_packet_len_varint.encode_async(&mut self.writer).await?;
+        data_len_varint.encode_async(&mut self.writer).await?;
+        self.writer.write_all(&self.compression_scratch).await?;
+    } else {
+        // UNCOMPRESSED (but data_length = 0 to indicate no compression)
+        
+        let data_len_varint: VarInt = 0.into();  // 0 = not compressed
+        let full_packet_len = data_len_varint.written_size() + data_len;
+        
+        // Write: packet_length | 0 | uncompressed_data
+        full_packet_len_varint.encode_async(&mut self.writer).await?;
+        data_len_varint.encode_async(&mut self.writer).await?;
+        self.writer.write_all(&packet_data).await?;
+    }
+}
+```
+
+### Key Points
+
+1. **Data Length Field**:
+   - If compressed: uncompressed data length
+   - If not compressed: 0
+
+2. **Threshold Check**: Data is only compressed if `data_len >= threshold`
+
+3. **Packet Length**: Always the total bytes after this field
+
+## Decoder Decompression
+
+The `TCPNetworkDecoder` decompresses incoming packets.
+
+### Decompression State
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:76-80`
+
+```rust
+pub struct TCPNetworkDecoder<R: AsyncRead + Unpin> {
+    reader: DecryptionReader<R>,
+    compression: Option<CompressionThreshold>,
+    payload_scratch: BytesMut,
+}
+```
+
+### Enabling Compression
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:90-92`
+
+```rust
+pub const fn set_compression(&mut self, threshold: CompressionThreshold) {
+    self.compression = Some(threshold);
+}
+```
+
+### Decompression Algorithm
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:122-146`
+
+```rust
+let mut reader = if let Some(threshold) = self.compression {
+    let decompressed_length = VarInt::decode_async(&mut bounded_reader).await?;
+    let raw_packet_length = packet_len - decompressed_length.written_size() as u64;
+    let decompressed_length = decompressed_length.0 as usize;
+    
+    if !(0..=MAX_PACKET_DATA_SIZE).contains(&decompressed_length) {
+        Err(PacketDecodeError::TooLong)?;
+    }
+    
+    if decompressed_length > 0 {
+        // COMPRESSED - decompress
+        expected_packet_data_len = decompressed_length;
+        expected_uncompressed_packet_data_len = Some(decompressed_length);
+        DecompressionReader::Decompress(
+            ZlibDecoder::new(BufReader::new(bounded_reader))
+        )
+    } else {
+        // NOT COMPRESSED - validate threshold
+        if raw_packet_length > threshold as u64 {
+            Err(PacketDecodeError::NotCompressed)?;
+        }
+        expected_packet_data_len = raw_packet_length as usize;
+        DecompressionReader::None(bounded_reader)
+    }
+} else {
+    DecompressionReader::None(bounded_reader)
+};
+```
+
+### Validation
+
+1. **Size Limits**: Decompressed length must be ≤ `MAX_PACKET_DATA_SIZE` (8 MB)
+2. **Threshold Check**: Uncompressed packets > threshold trigger error
+3. **Length Verification**: Actual decompressed size must match declared size
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:170-177`
+
+```rust
+if let Some(expected) = expected_uncompressed_packet_data_len {
+    let actual = packet_id_len + self.payload_scratch.len();
+    if actual != expected {
+        return Err(PacketDecodeError::FailedDecompression(format!(
+            "Declared decompressed length {expected} but decoded {actual} bytes"
+        )));
+    }
+}
+```
+
+## Decompression Reader
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:13-36`
+
+```rust
+pub enum DecompressionReader<R: AsyncRead + Unpin> {
+    Decompress(ZlibDecoder<BufReader<R>>),
+    None(R),
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for DecompressionReader<R> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Decompress(reader) => Pin::new(reader).poll_read(cx, buf),
+            Self::None(reader) => Pin::new(reader).poll_read(cx, buf),
+        }
+    }
+}
+```
+
+Wraps either a zlib decoder or raw reader, allowing transparent decompression.
+
+## Compression with Encryption
+
+### Processing Order
+
+**Encoding (Server → Client):**
+```
+Raw Data → Compress → Encrypt → Network
+```
+
+**Decoding (Client → Server):**  
+```
+Network → Decrypt → Decompress → Raw Data
+```
+
+Defined in:
+- Encoder: `pumpkin-protocol/src/java/packet_encoder.rs:12` (comment)
+- Decoder: `pumpkin-protocol/src/java/packet_decoder.rs:11` (comment)
+
+### Implementation
+
+```rust
+// Enable both compression and encryption
+encoder.set_compression((256, 6));
+encoder.set_encryption(&key);
+
+decoder.set_compression(256);
+decoder.set_encryption(&key);
+```
+
+Compression is applied first, then the compressed data is encrypted.
+
+## Performance Considerations
+
+### Buffer Reuse
+
+The encoder reuses buffers to minimize allocations:
+
+```rust
+// Reused across all compressed packets
+compression_scratch: Vec<u8>,
+
+// Reserve hint includes overhead
+let reserve_hint = packet_data.len()
+    .saturating_add(packet_data.len() / 16)  // ~6% overhead
+    .saturating_add(64);                      // Header space
+```
+
+### Compressor Reuse
+
+The zlib compressor state is reused when compression level doesn't change:
+
+```rust
+let needs_new_compressor = match self.compressor.as_ref() {
+    Some((level, _)) => *level != compression_level,
+    None => true,
+};
+
+if needs_new_compressor {
+    self.compressor = Some((
+        compression_level,
+        Compress::new(Compression::new(compression_level), true),
+    ));
+}
+
+compressor.reset();  // Reset state, reuse compressor
+```
+
+### Async Decompression
+
+Decompression uses async zlib decoder to avoid blocking:
+
+```rust
+use async_compression::tokio::bufread::ZlibDecoder;
+
+DecompressionReader::Decompress(
+    ZlibDecoder::new(BufReader::new(bounded_reader))
+)
+```
+
+## Testing Compression
+
+### Test: Encode with Compression
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:444-494`
+
+```rust
+#[tokio::test]
+async fn encode_with_compression() {
+    let packet = CStatusResponse::new(
+        "{\"description\": \"A Minecraft Server\"}".to_string()
+    );
+    
+    // Compression threshold: 0 (always compress), level: 6
+    let packet_bytes = build_packet_with_encoder(&packet, Some((0, 6)), None).await;
+    
+    let mut buffer = &packet_bytes[..];
+    
+    // Read packet length
+    let packet_length = decode_varint(&mut buffer)?;
+    
+    // Read data length (uncompressed size)
+    let data_length = decode_varint(&mut buffer)?;
+    
+    // Remaining bytes are compressed
+    let compressed_data = buffer;
+    
+    // Decompress and verify
+    let decompressed = decompress_zlib(compressed_data, data_length as usize)?;
+    
+    let mut decompressed_buffer = &decompressed[..];
+    let packet_id = decode_varint(&mut decompressed_buffer)?;
+    
+    assert_eq!(packet_id, CStatusResponse::to_id(MinecraftVersion::V_1_21_11));
+}
+```
+
+### Test: Decode with Compression
+
+Defined in `pumpkin-protocol/src/java/packet_decoder.rs:288-307`
+
+```rust
+#[tokio::test]
+async fn decode_with_compression() {
+    let packet_id = 2;
+    let payload = b"Hello, compressed world!";
+    
+    // Build compressed packet
+    let packet = build_packet(packet_id, payload, true, None, None);
+    
+    // Initialize decoder with compression
+    let mut decoder = TCPNetworkDecoder::new(packet.as_slice());
+    decoder.set_compression(1000);  // Threshold > payload size
+    
+    // Decode and verify
+    let raw_packet = decoder.get_raw_packet().await.expect("Decoding failed");
+    
+    assert_eq!(raw_packet.id, packet_id);
+    assert_eq!(raw_packet.payload.as_ref(), payload);
+}
+```
+
+### Test: Small Payload No Compression
+
+Defined in `pumpkin-protocol/src/java/packet_encoder.rs:697-738`
+
+```rust
+#[tokio::test]
+async fn encode_small_payload_no_compression() {
+    let packet = CStatusResponse::new(String::from("Hi"));
+    
+    // Threshold: 10 bytes, payload is smaller
+    let packet_bytes = build_packet_with_encoder(&packet, Some((10, 6)), None).await;
+    
+    let mut buffer = &packet_bytes[..];
+    let packet_length = decode_varint(&mut buffer)?;
+    
+    // Data length should be 0 (not compressed)
+    let data_length = decode_varint(&mut buffer)?;
+    assert_eq!(data_length, 0, "Data length should be 0 indicating no compression");
+    
+    // Remaining data is uncompressed
+    let packet_id = decode_varint(&mut buffer)?;
+    assert_eq!(packet_id, CStatusResponse::to_id(MinecraftVersion::V_1_21_11));
+}
+```
+
+## Bedrock Edition Compression
+
+### Current Status
+
+Bedrock Edition compression is partially implemented:
+
+```rust
+// pumpkin-protocol/src/bedrock/packet_encoder.rs:125-128
+if self.compression.is_some() {
+    // TODO: compression
+    writer.write_u8(u8::MAX).unwrap();  // Compression method placeholder
+}
+```
+
+```rust
+// pumpkin-protocol/src/bedrock/packet_decoder.rs:128-131  
+if self.compression.is_some() {
+    let _method = reader.get_u8().unwrap();
+    // None Compression
+}
+```
+
+### Planned Implementation
+
+Bedrock Edition will support zlib compression similar to Java Edition.
+
+## Error Handling
+
+### Compression Errors
+
+```rust
+pub enum PacketEncodeError {
+    CompressionFailed(String),
+    // ...
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:339`
+
+### Decompression Errors
+
+```rust
+pub enum PacketDecodeError {
+    FailedDecompression(String),
+    NotCompressed,  // Uncompressed packet exceeded threshold
+    // ...
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:355-357`
+
+## Best Practices
+
+### Threshold Selection
+
+- **Too Low**: Wastes CPU compressing small packets
+- **Too High**: Wastes bandwidth on large packets
+- **Recommended**: 256 bytes (Minecraft default)
+
+### Compression Level
+
+- **Level 1-3**: Fast, lower compression ratio
+- **Level 6**: Balanced (recommended for servers)
+- **Level 9**: Best compression, high CPU usage
+
+### Buffer Management
+
+The encoder automatically manages buffer sizes:
+
+```rust
+// Reserve space with overhead estimate
+let reserve_hint = packet_data.len()
+    .saturating_add(packet_data.len() / 16)
+    .saturating_add(64);
+```
+
+This minimizes reallocations while avoiding over-allocation.
+
+## Next Steps
+
+- [Encryption](/protocol/encryption) - Learn about packet encryption
+- [Java Edition Protocol](/protocol/java-edition) - See compression in context
+- [Overview](/protocol/overview) - Return to protocol overview

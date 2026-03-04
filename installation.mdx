@@ -1,0 +1,537 @@
+---
+title: Installation
+description: Detailed instructions for installing and running Pumpkin
+---
+
+This guide covers multiple methods for installing Pumpkin. Choose the method that best fits your needs.
+
+## System requirements
+
+### Minimum requirements
+
+- **CPU**: 2 cores
+- **RAM**: 2GB
+- **Storage**: 1GB for server files, plus space for worlds
+- **OS**: Linux, macOS, or Windows
+
+### Recommended requirements
+
+- **CPU**: 4+ cores
+- **RAM**: 4GB or more
+- **Storage**: SSD with 10GB+ available
+- **Network**: Stable internet connection for online mode
+
+### Software requirements
+
+- **For Docker**: Docker 20.10+ and Docker Compose 2.0+ (optional)
+- **For source builds**: Rust 1.89+ and Cargo
+- **For running**: Minecraft Java Edition 1.21.11 (clients)
+
+## Installation methods
+
+<CardGroup cols={3}>
+  <Card title="Docker" icon="docker" href="#docker-installation">
+    Recommended for most users
+  </Card>
+  
+  <Card title="From source" icon="code" href="#building-from-source">
+    Best for development
+  </Card>
+  
+  <Card title="Pre-built binary" icon="file-zipper" href="#pre-built-binaries">
+    Quick setup (when available)
+  </Card>
+</CardGroup>
+
+## Docker installation
+
+Docker is the recommended installation method for most users. It provides isolation, easy updates, and consistent behavior across platforms.
+
+### Prerequisites
+
+Install Docker and Docker Compose:
+
+<CodeGroup>
+```bash Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install docker.io docker-compose-v2
+sudo systemctl enable --now docker
+```
+
+```bash Fedora/RHEL
+sudo dnf install docker docker-compose
+sudo systemctl enable --now docker
+```
+
+```bash macOS
+brew install docker docker-compose
+```
+
+```powershell Windows
+# Download and install Docker Desktop from:
+# https://www.docker.com/products/docker-desktop
+```
+</CodeGroup>
+
+### Using Docker run
+
+Run Pumpkin with a single command:
+
+```bash
+docker run -d \
+  --name pumpkin \
+  -p 25565:25565 \
+  -p 19132:19132/udp \
+  -v $(pwd)/pumpkin-data:/pumpkin \
+  -e RUST_BACKTRACE=1 \
+  --restart unless-stopped \
+  ghcr.io/pumpkin-mc/pumpkin:master
+```
+
+**Options explained**:
+- `-d`: Run in background (detached mode)
+- `--name pumpkin`: Container name for easy reference
+- `-p 25565:25565`: Expose Java Edition port
+- `-p 19132:19132/udp`: Expose Bedrock Edition port
+- `-v $(pwd)/pumpkin-data:/pumpkin`: Mount volume for persistent data
+- `-e RUST_BACKTRACE=1`: Enable backtraces for debugging
+- `--restart unless-stopped`: Auto-restart on crashes
+
+### Using Docker Compose
+
+For production deployments, use Docker Compose:
+
+<Steps>
+  <Step title="Create docker-compose.yml">
+    Create a `docker-compose.yml` file:
+    
+    ```yaml docker-compose.yml
+    services:
+      pumpkin:
+        image: ghcr.io/pumpkin-mc/pumpkin:master
+        ports:
+          - "25565:25565"
+          - "19132:19132/udp"
+        volumes:
+          - ./data:/pumpkin
+        environment:
+          - RUST_BACKTRACE=1
+        security_opt:
+          - no-new-privileges:true
+        restart: unless-stopped
+        stdin_open: true
+        tty: true
+        cap_drop:
+          - ALL
+        read_only: true
+    ```
+    
+    <Note>
+      This configuration includes security best practices like dropping capabilities and running with a read-only filesystem.
+    </Note>
+  </Step>
+  
+  <Step title="Start the server">
+    Launch Pumpkin:
+    
+    ```bash
+    docker compose up -d
+    ```
+    
+    View logs:
+    
+    ```bash
+    docker compose logs -f pumpkin
+    ```
+  </Step>
+  
+  <Step title="Manage the server">
+    Useful commands:
+    
+    ```bash
+    # Stop the server
+    docker compose down
+    
+    # Restart the server
+    docker compose restart
+    
+    # Update to latest version
+    docker compose pull
+    docker compose up -d
+    
+    # Access server console
+    docker attach pumpkin
+    # Press Ctrl+P, Ctrl+Q to detach without stopping
+    ```
+  </Step>
+</Steps>
+
+### Building Docker image locally
+
+To build the Docker image yourself:
+
+```bash
+git clone https://github.com/Pumpkin-MC/Pumpkin.git
+cd Pumpkin
+docker build -t pumpkin:local .
+```
+
+The Dockerfile uses a multi-stage build:
+1. **Builder stage**: Compiles Pumpkin from source using `rust:1-alpine3.23`
+2. **Runtime stage**: Creates minimal Alpine-based image with just the binary
+
+This results in a small, efficient container image.
+
+## Building from source
+
+Building from source gives you the latest features and allows customization.
+
+### Install Rust
+
+<Steps>
+  <Step title="Install Rust toolchain">
+    Install Rust using rustup:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source $HOME/.cargo/env
+    ```
+    
+    ```powershell Windows
+    # Download and run rustup-init.exe from:
+    # https://rustup.rs/
+    ```
+    </CodeGroup>
+  </Step>
+  
+  <Step title="Verify installation">
+    Confirm Rust is installed:
+    
+    ```bash
+    rustc --version
+    cargo --version
+    ```
+    
+    You should see Rust 1.89 or later.
+  </Step>
+</Steps>
+
+### Clone and build
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Pumpkin-MC/Pumpkin.git
+    cd Pumpkin
+    ```
+  </Step>
+  
+  <Step title="Build in release mode">
+    Compile Pumpkin with optimizations:
+    
+    ```bash
+    cargo build --release
+    ```
+    
+    This will:
+    - Download and compile all dependencies
+    - Apply release optimizations (LTO, single codegen unit)
+    - Take 5-15 minutes on first build
+    - Produce a binary at `target/release/pumpkin`
+    
+    <Note>
+      Release builds are 10-100x faster than debug builds. Always use `--release` for running a server.
+    </Note>
+  </Step>
+  
+  <Step title="Run the server">
+    Start Pumpkin:
+    
+    ```bash
+    ./target/release/pumpkin
+    ```
+    
+    Or use Cargo:
+    
+    ```bash
+    cargo run --release
+    ```
+    
+    The server will create a `config` directory with default configuration on first run.
+  </Step>
+</Steps>
+
+### Development build
+
+For development and testing:
+
+```bash
+# Build and run in debug mode (faster compilation, slower runtime)
+cargo run
+
+# Run tests
+cargo test
+
+# Run clippy linter
+cargo clippy --all-targets
+
+# Format code
+cargo fmt
+```
+
+<Warning>
+  Debug builds have significantly lower performance. Use `--release` for any performance testing or actual gameplay.
+</Warning>
+
+## Pre-built binaries
+
+Pre-built binaries will be available for stable releases. Currently, Pumpkin is in active development, so building from source or using Docker is recommended.
+
+Check the [GitHub Releases](https://github.com/Pumpkin-MC/Pumpkin/releases) page for available downloads once the first stable version is released.
+
+## Post-installation setup
+
+After installing Pumpkin, configure your server:
+
+### Configuration files
+
+Pumpkin creates two configuration files in the `config` directory:
+
+<CodeGroup>
+```toml configuration.toml
+# Basic server configuration
+java_edition = true
+java_edition_address = "0.0.0.0:25565"
+bedrock_edition = true
+bedrock_edition_address = "0.0.0.0:19132"
+
+seed = 0  # Random seed generated on first run
+max_players = 1000
+view_distance = 16
+simulation_distance = 10
+
+default_difficulty = "Normal"
+op_permission_level = 4
+
+allow_nether = true
+allow_end = true
+hardcore = false
+
+online_mode = true
+encryption = true
+
+motd = "A blazingly fast Pumpkin server!"
+tps = 20.0
+
+default_gamemode = "Survival"
+force_gamemode = false
+
+scrub_ips = true
+use_favicon = true
+favicon_path = null
+
+default_level_name = "world"
+
+allow_chat_reports = false
+white_list = false
+enforce_whitelist = false
+```
+
+```toml features.toml
+# Advanced features and options
+[logging]
+level = "INFO"
+enabled = true
+
+[resource_pack]
+enabled = false
+# url = "https://example.com/pack.zip"
+# sha1 = "..."
+# force = false
+
+[networking.compression]
+enabled = true
+threshold = 256
+
+[networking.authentication]
+enabled = true
+prevent_proxy_connections = false
+
+[networking.rcon]
+enabled = false
+address = "0.0.0.0:25575"
+password = ""
+
+[commands]
+enabled = true
+
+[pvp]
+enabled = true
+```
+</CodeGroup>
+
+See the [configuration guide](/configuration/overview) for detailed explanations of all options.
+
+### Directory structure
+
+Pumpkin creates the following directory structure:
+
+```
+.
+├── config/
+│   ├── configuration.toml
+│   └── features.toml
+├── world/              # Default world (if not specified)
+│   ├── region/
+│   ├── level.dat
+│   └── ...
+└── pumpkin             # Executable (if built from source)
+```
+
+### Firewall configuration
+
+Open the required ports in your firewall:
+
+<CodeGroup>
+```bash UFW (Ubuntu)
+sudo ufw allow 25565/tcp  # Java Edition
+sudo ufw allow 19132/udp  # Bedrock Edition
+sudo ufw allow 25575/tcp  # RCON (optional)
+```
+
+```bash firewalld (Fedora/RHEL)
+sudo firewall-cmd --permanent --add-port=25565/tcp
+sudo firewall-cmd --permanent --add-port=19132/udp
+sudo firewall-cmd --reload
+```
+
+```bash iptables
+sudo iptables -A INPUT -p tcp --dport 25565 -j ACCEPT
+sudo iptables -A INPUT -p udp --dport 19132 -j ACCEPT
+```
+</CodeGroup>
+
+## Updating Pumpkin
+
+### Docker
+
+Update to the latest version:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+### From source
+
+Pull the latest changes and rebuild:
+
+```bash
+cd Pumpkin
+git pull
+cargo build --release
+```
+
+<Note>
+  Always back up your world and configuration files before updating.
+</Note>
+
+## Uninstalling
+
+### Docker
+
+Remove the container and images:
+
+```bash
+docker compose down
+docker rmi ghcr.io/pumpkin-mc/pumpkin:master
+```
+
+To also remove data:
+
+```bash
+rm -rf ./data  # or your mounted volume directory
+```
+
+### From source
+
+Simply delete the Pumpkin directory:
+
+```bash
+rm -rf Pumpkin
+```
+
+## Troubleshooting
+
+### Rust version too old
+
+Update Rust to the latest stable version:
+
+```bash
+rustup update stable
+rustup default stable
+```
+
+### Build fails with linker errors
+
+Install build dependencies:
+
+<CodeGroup>
+```bash Ubuntu/Debian
+sudo apt-get install build-essential pkg-config libssl-dev
+```
+
+```bash Fedora/RHEL
+sudo dnf install gcc openssl-devel
+```
+
+```bash macOS
+xcode-select --install
+```
+</CodeGroup>
+
+### Permission denied (Docker)
+
+Add your user to the docker group:
+
+```bash
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+### Port already in use
+
+Find and stop the process using the port:
+
+```bash
+# Linux/macOS
+sudo lsof -i :25565
+sudo kill -9 <PID>
+
+# Windows
+netstat -ano | findstr :25565
+taskkill /PID <PID> /F
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Configure your server settings
+  </Card>
+  
+  <Card title="World Management" icon="globe" href="/features/world-management">
+    Set up and manage your worlds
+  </Card>
+  
+  <Card title="Commands" icon="terminal" href="/features/commands">
+    Learn available server commands
+  </Card>
+  
+  <Card title="Deployment" icon="server" href="/deployment/docker">
+    Deploy to production
+  </Card>
+</CardGroup>
+
+For additional help, join the [Discord community](https://discord.gg/pumpkinmc) or check the [GitHub issues](https://github.com/Pumpkin-MC/Pumpkin/issues).

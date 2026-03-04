@@ -1,0 +1,157 @@
+---
+title: Network Protocol Overview
+description: Overview of Pumpkin's network protocol implementation
+---
+
+Pumpkin implements the Minecraft network protocol for both Java Edition and Bedrock Edition, providing a robust, high-performance foundation for packet handling, encryption, and compression.
+
+## Architecture
+
+The protocol implementation is organized into several key components:
+
+- **Java Edition Protocol** - TCP-based protocol for Java Edition clients
+- **Bedrock Edition Protocol** - UDP-based RakNet protocol for Bedrock Edition clients
+- **Codec System** - Efficient encoding/decoding of Minecraft data types
+- **Encryption Layer** - AES-128 CFB8 encryption for secure connections
+- **Compression Layer** - Zlib compression for bandwidth optimization
+
+## Protocol Crates
+
+### pumpkin-protocol
+
+The main protocol crate located at `pumpkin-protocol/` provides:
+
+- Packet encoding and decoding
+- Connection state management
+- Encryption and compression support
+- VarInt/VarLong codec implementation
+- Serialization/deserialization utilities
+
+Key files:
+- `src/lib.rs` - Core protocol types and constants
+- `src/packet.rs` - Packet trait definitions
+- `src/java/` - Java Edition protocol implementation
+- `src/bedrock/` - Bedrock Edition protocol implementation
+- `src/codec/` - Data type codecs (VarInt, VarLong, etc.)
+
+### pumpkin-data
+
+The data crate located at `pumpkin-data/` contains:
+
+- Protocol version mappings
+- Packet ID definitions for multiple versions
+- Registry data (blocks, items, entities, etc.)
+
+References:
+- `src/generated/packet.rs` - Auto-generated packet IDs for all supported versions
+
+## Connection States
+
+The protocol supports the following connection states:
+
+```rust
+pub enum ConnectionState {
+    HandShake,
+    Status,
+    Login,
+    Transfer,
+    Config,
+    Play,
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:54-61`
+
+## Protocol Limits
+
+Pumpkin enforces the following packet size limits:
+
+```rust
+pub const MAX_PACKET_SIZE: u64 = 2_097_152;        // ~2 MB
+pub const MAX_PACKET_DATA_SIZE: usize = 8_388_608;  // ~8 MB
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:35-36`
+
+## Supported Versions
+
+Pumpkin supports multiple Minecraft versions with dynamic packet ID mapping:
+
+- **Java Edition**: 1.21 through 1.21.11
+- **Current Version**: 1.21.11 (Protocol 785)
+- **Lowest Supported**: 1.21 (Protocol 767)
+
+Version information is defined in `pumpkin-data/src/generated/packet.rs:3-4`
+
+## Multi-Version Support
+
+Packets implement the `MultiVersionJavaPacket` trait to support multiple protocol versions:
+
+```rust
+pub trait MultiVersionJavaPacket {
+    fn to_id(version: MinecraftVersion) -> i32;
+}
+```
+
+The `PacketId` struct stores packet IDs for each supported version, automatically mapping to the correct ID based on the client's protocol version.
+
+Defined in `pumpkin-protocol/src/packet.rs:17-20` and `pumpkin-data/src/generated/packet.rs:6-32`
+
+## Packet Structure
+
+### Java Edition (TCP)
+
+**Uncompressed Packet:**
+```
+|------------------------|
+| Packet Length (VarInt) |
+|------------------------|
+| Packet ID (VarInt)     |
+|------------------------|
+| Data (Byte Array)      |
+|------------------------|
+```
+
+**Compressed Packet:**
+```
+|-------------------------|
+| Packet Length (VarInt)  |
+|-------------------------|
+| Data Length (VarInt)    |
+|-------------------------|
+| Packet ID (VarInt)      |
+|-------------------------|
+| Data (Byte Array)       |
+|-------------------------|
+```
+
+See `pumpkin-protocol/src/java/packet_encoder.rs:173-196` for detailed documentation.
+
+### Bedrock Edition (UDP)
+
+Bedrock Edition uses the RakNet protocol with a different packet structure:
+
+- **Game Packet ID**: 0xFE
+- **14-bit Header**: Contains packet ID (10 bits) + sub-client IDs (4 bits)
+- **Compression Support**: Optional zlib compression
+- **MTU Size**: 1400 bytes
+
+Defined in `pumpkin-protocol/src/bedrock/mod.rs:9-20`
+
+## Raw Packet Representation
+
+```rust
+pub struct RawPacket {
+    pub id: i32,
+    pub payload: Bytes,
+}
+```
+
+Defined in `pumpkin-protocol/src/lib.rs:309-312`
+
+## Next Steps
+
+- [Java Edition Protocol](/protocol/java-edition) - Detailed Java Edition implementation
+- [Bedrock Edition Protocol](/protocol/bedrock-edition) - Bedrock Edition and RakNet
+- [Encryption](/protocol/encryption) - AES encryption implementation
+- [Compression](/protocol/compression) - Zlib compression support

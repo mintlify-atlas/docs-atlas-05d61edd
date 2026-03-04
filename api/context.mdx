@@ -1,0 +1,339 @@
+---
+title: Context API
+description: The Context struct provides plugin access to server functionality and event registration
+---
+
+## Overview
+
+The `Context` struct is the primary interface between plugins and the Pumpkin server. It provides methods for:
+- Registering event handlers
+- Registering commands
+- Managing permissions
+- Accessing server resources
+- Service registration and retrieval
+
+## Context Structure
+
+```rust
+pub struct Context {
+    metadata: PluginMetadata<'static>,
+    pub server: Arc<Server>,
+    pub handlers: Arc<RwLock<HandlerMap>>,
+    pub plugin_manager: Arc<PluginManager>,
+    pub permission_manager: Arc<RwLock<PermissionManager>>,
+    pub logger: Arc<OnceLock<LoggerOption>>,
+}
+```
+
+<ParamField path="metadata" type="PluginMetadata<'static>">
+  Plugin metadata including name, version, authors, and description
+</ParamField>
+
+<ParamField path="server" type="Arc<Server>">
+  Reference to the server instance
+</ParamField>
+
+<ParamField path="handlers" type="Arc<RwLock<HandlerMap>>">
+  Map of registered event handlers
+</ParamField>
+
+<ParamField path="plugin_manager" type="Arc<PluginManager>">
+  Plugin manager instance
+</ParamField>
+
+<ParamField path="permission_manager" type="Arc<RwLock<PermissionManager>>">
+  Permission manager for handling plugin permissions
+</ParamField>
+
+## Core Methods
+
+### get_data_folder
+
+```rust
+pub fn get_data_folder(&self) -> PathBuf
+```
+
+Retrieves the data folder path for the plugin, creating it if it does not exist.
+
+<ResponseField name="returns" type="PathBuf">
+  Path to the plugin's data folder (e.g., `./plugins/<plugin_name>`)
+</ResponseField>
+
+**Example:**
+```rust
+fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+    Box::pin(async move {
+        let data_folder = context.get_data_folder();
+        println!("Data folder: {:?}", data_folder);
+        Ok(())
+    })
+}
+```
+
+### get_player_by_name
+
+```rust
+pub fn get_player_by_name(&self, player_name: &str) -> Option<Arc<Player>>
+```
+
+Retrieves a player by their name.
+
+<ParamField path="player_name" type="&str" required>
+  The name of the player to retrieve
+</ParamField>
+
+<ResponseField name="returns" type="Option<Arc<Player>>">
+  Reference to the player if found, or `None` if not
+</ResponseField>
+
+### register_event
+
+```rust
+pub async fn register_event<E: Payload + 'static, H>(
+    &self,
+    handler: Arc<H>,
+    priority: EventPriority,
+    blocking: bool,
+) where
+    H: EventHandler<E> + 'static
+```
+
+Registers an event handler for a specific event type.
+
+<ParamField path="handler" type="Arc<H>" required>
+  The event handler implementation
+</ParamField>
+
+<ParamField path="priority" type="EventPriority" required>
+  Priority level for the handler (Highest, High, Normal, Low, Lowest)
+</ParamField>
+
+<ParamField path="blocking" type="bool" required>
+  Whether the handler is blocking (can modify event data)
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin::plugin::*;
+
+struct MyHandler;
+
+impl EventHandler<PlayerJoinEvent> for MyHandler {
+    fn handle<'a>(&'a self, server: &'a Arc<Server>, event: &'a PlayerJoinEvent) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            println!("Player joined: {:?}", event.player.gameprofile.name);
+        })
+    }
+}
+
+// In on_load:
+context.register_event(
+    Arc::new(MyHandler),
+    EventPriority::Normal,
+    false
+).await;
+```
+
+### register_command
+
+```rust
+pub async fn register_command<P: Into<String>>(
+    &self,
+    tree: CommandTree,
+    permission: P,
+)
+```
+
+Registers a command with the server.
+
+<ParamField path="tree" type="CommandTree" required>
+  The command tree structure defining the command syntax
+</ParamField>
+
+<ParamField path="permission" type="P: Into<String>" required>
+  Permission node required to execute the command (automatically prefixed with plugin name)
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin::command::tree::CommandTree;
+use pumpkin::command::CommandSender;
+
+let tree = CommandTree::new(["mycommand"], "My custom command")
+    .execute(|sender: &CommandSender, _server, _args| {
+        Box::pin(async move {
+            sender.send_message(TextComponent::text("Hello!")).await;
+            Ok(())
+        })
+    });
+
+context.register_command(tree, "mycommand.use").await;
+```
+
+### unregister_command
+
+```rust
+pub async fn unregister_command(&self, name: &str)
+```
+
+Unregisters a command from the server.
+
+<ParamField path="name" type="&str" required>
+  The name of the command to unregister
+</ParamField>
+
+### register_permission
+
+```rust
+pub async fn register_permission(&self, permission: Permission) -> Result<(), String>
+```
+
+Registers a permission for this plugin.
+
+<ParamField path="permission" type="Permission" required>
+  Permission object with node, description, and default level
+</ParamField>
+
+<ResponseField name="returns" type="Result<(), String>">
+  Ok on success, Err if permission node doesn't use plugin's namespace
+</ResponseField>
+
+**Example:**
+```rust
+use pumpkin_util::permission::Permission;
+use pumpkin_util::PermissionLvl;
+
+let permission = Permission {
+    node: "myplugin:admin".to_string(),
+    description: "Admin permission".to_string(),
+    default: PermissionLvl::Zero,
+};
+
+context.register_permission(permission).await?;
+```
+
+### player_has_permission
+
+```rust
+pub async fn player_has_permission(&self, player_uuid: &uuid::Uuid, permission: &str) -> bool
+```
+
+Checks if a player has a specific permission.
+
+<ParamField path="player_uuid" type="&uuid::Uuid" required>
+  UUID of the player to check
+</ParamField>
+
+<ParamField path="permission" type="&str" required>
+  Permission node to check
+</ParamField>
+
+<ResponseField name="returns" type="bool">
+  `true` if the player has the permission, `false` otherwise
+</ResponseField>
+
+## Service Management
+
+### register_service
+
+```rust
+pub async fn register_service<N: Into<String>, T: Payload + 'static>(
+    &self,
+    name: N,
+    service: Arc<T>,
+)
+```
+
+Registers a service with the plugin context, making it available for retrieval by other plugins.
+
+<ParamField path="name" type="N: Into<String>" required>
+  Unique name to register the service under
+</ParamField>
+
+<ParamField path="service" type="Arc<T>" required>
+  Service instance wrapped in Arc
+</ParamField>
+
+**Example:**
+```rust
+context.register_service("my_service", Arc::new(MyService::new())).await;
+```
+
+### get_service
+
+```rust
+pub async fn get_service<T: Payload + 'static>(&self, name: &str) -> Option<Arc<T>>
+```
+
+Retrieves a registered service by name and type.
+
+<ParamField path="name" type="&str" required>
+  Name of the service to retrieve
+</ParamField>
+
+<ResponseField name="returns" type="Option<Arc<T>>">
+  Service instance if found and type matches, or `None`
+</ResponseField>
+
+**Example:**
+```rust
+if let Some(service) = context.get_service::<MyService>("my_service").await {
+    service.do_something();
+}
+```
+
+## Logging
+
+### init_log
+
+```rust
+pub fn init_log(&self)
+```
+
+Initializes logging via the tracing crate for the plugin.
+
+### log
+
+```rust
+pub fn log(&self, message: impl std::fmt::Display)
+```
+
+Logs a message using the plugin's logger.
+
+<ParamField path="message" type="impl std::fmt::Display" required>
+  Message to log
+</ParamField>
+
+**Example:**
+```rust
+context.log("Plugin initialized successfully");
+```
+
+## Plugin Loader Extension
+
+### register_plugin_loader
+
+```rust
+pub async fn register_plugin_loader(
+    &self,
+    loader: Arc<dyn PluginLoader>,
+) -> bool
+```
+
+Registers a custom plugin loader that can load additional plugin types (e.g., Lua, JavaScript).
+
+<ParamField path="loader" type="Arc<dyn PluginLoader>" required>
+  Custom plugin loader implementation
+</ParamField>
+
+<ResponseField name="returns" type="bool">
+  `true` if new plugins were loaded as a result of registering this loader
+</ResponseField>
+
+**Example:**
+```rust
+let lua_loader = Arc::new(LuaPluginLoader::new());
+if context.register_plugin_loader(lua_loader).await {
+    context.log("Lua plugin loader registered and loaded new plugins");
+}
+```

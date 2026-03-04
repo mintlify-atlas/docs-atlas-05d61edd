@@ -1,0 +1,83 @@
+---
+title: Configuration Overview
+description: Introduction to Pumpkin's TOML-based configuration system
+---
+
+Pumpkin uses a flexible TOML-based configuration system divided into two main files:
+
+- **`configuration.toml`** - Core server settings (basic configuration)
+- **`features.toml`** - Advanced and optional features (advanced configuration)
+
+Both files are automatically created with default values when the server first starts. If configuration options are missing, Pumpkin will fill them with defaults and notify you.
+
+## Configuration Files Location
+
+Configuration files are stored in the server's config directory (typically the root directory where Pumpkin runs).
+
+## Configuration Structure
+
+Pumpkin's configuration is organized into logical sections:
+
+### Basic Configuration (`configuration.toml`)
+
+Core settings required for basic server operation:
+
+- Server address and port bindings (Java & Bedrock editions)
+- World settings (seed, dimensions, difficulty)
+- Player limits and permissions
+- Authentication and security
+- Server identity (MOTD, favicon)
+- Whitelist configuration
+
+### Advanced Configuration (`features.toml`)
+
+Optional features and fine-tuning:
+
+- **Logging** - Log levels, output formats, file paths
+- **Resource Pack** - Server resource pack distribution
+- **World** - Chunk storage, lighting, autosave settings
+- **Networking** - Compression, authentication, RCON, query, proxy support
+- **Commands** - Console and player command settings
+- **Chat** - Chat formatting and behavior
+- **PVP** - Player vs player mechanics
+- **Server Links** - URLs exposed to clients
+- **Player Data** - Persistence and save intervals
+- **Fun** - Experimental and seasonal features
+
+## Configuration Validation
+
+Pumpkin validates configuration on startup and will panic with clear error messages if:
+
+- View distance is outside the valid range (2-64)
+- Online mode is enabled without encryption
+- Chat reports are enabled without online mode
+- Resource pack is enabled without proper URL and SHA1 hash
+
+## Default Behavior
+
+**Important**: Pumpkin's configuration defaults match vanilla Minecraft behavior where applicable. This ensures a familiar experience out of the box.
+
+## Configuration Merging
+
+When you update Pumpkin and new configuration options are added:
+
+1. Pumpkin reads your existing configuration
+2. Merges it with new default values for missing fields
+3. Writes the updated configuration back to disk
+4. Notifies you that values were added
+
+Your existing settings are never overwritten during this process.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Basic Configuration" icon="server" href="/configuration/basic">
+    Configure core server settings
+  </Card>
+  <Card title="Advanced Configuration" icon="sliders" href="/configuration/advanced">
+    Fine-tune optional features
+  </Card>
+  <Card title="Permissions" icon="shield" href="/configuration/permissions">
+    Set up operators and whitelists
+  </Card>
+</CardGroup>

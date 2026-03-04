@@ -1,122 +1,120 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Pumpkin",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#e0904a",
+    "light": "#853c08",
+    "dark": "#e0904a"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/e6e3cb93-5314-4301-a138-af06f0a601b5.png",
+  "logo": {
+    "light": "https://media.brand.dev/e6e3cb93-5314-4301-a138-af06f0a601b5.png",
+    "dark": "https://media.brand.dev/e6e3cb93-5314-4301-a138-af06f0a601b5.png"
+  },
+  "mode": "custom",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/Pumpkin-MC/Pumpkin"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Pumpkin-MC/Pumpkin",
+      "discord": "https://discord.gg/pumpkinmc"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "installation"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Configuration",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "configuration/overview",
+              "configuration/basic",
+              "configuration/advanced",
+              "configuration/permissions"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Core Features",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "features/protocol",
+              "features/world-management",
+              "features/entities",
+              "features/commands",
+              "features/plugins"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Deployment",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "deployment/docker",
+              "deployment/pterodactyl",
+              "deployment/performance"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/architecture",
+              "development/building",
+              "development/contributing"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Plugin API",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Plugin Development",
             "pages": [
-              "api-reference/introduction"
+              "plugins/introduction",
+              "plugins/getting-started",
+              "plugins/lifecycle",
+              "plugins/events"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "API Reference",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/context",
+              "api/event-handlers",
+              "api/server",
+              "api/world",
+              "api/entities",
+              "api/commands"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Protocol",
+        "groups": [
+          {
+            "group": "Network Protocol",
+            "pages": [
+              "protocol/overview",
+              "protocol/java-edition",
+              "protocol/bedrock-edition",
+              "protocol/encryption",
+              "protocol/compression"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

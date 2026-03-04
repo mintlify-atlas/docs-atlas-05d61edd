@@ -1,0 +1,321 @@
+---
+title: Docker Deployment
+description: Deploy Pumpkin using Docker and Docker Compose
+icon: docker
+---
+
+## Overview
+
+Pumpkin provides official Docker images for easy deployment. The Docker setup uses a multi-stage build process to create a minimal Alpine-based image.
+
+## Quick Start with Docker Compose
+
+The easiest way to run Pumpkin is using Docker Compose:
+
+```yaml docker-compose.yml
+services:
+  pumpkin:
+    # Use official image from GitHub Container Registry
+    image: ghcr.io/pumpkin-mc/pumpkin:master
+    # Or build from source:
+    # build: .
+    ports:
+      - "25565:25565"
+    volumes:
+      - ./data:/pumpkin
+      # Optional: make config immutable
+      # - ./config:/pumpkin/config:ro
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    cap_drop:
+      - ALL
+    read_only: true
+```
+
+### Start the server
+
+```bash
+docker compose up -d
+```
+
+### View logs
+
+```bash
+docker compose logs -f pumpkin
+```
+
+### Stop the server
+
+```bash
+docker compose down
+```
+
+## Using Pre-built Images
+
+Pumpkin images are available on GitHub Container Registry:
+
+```bash
+# Latest master branch
+docker pull ghcr.io/pumpkin-mc/pumpkin:master
+
+# Specific version tag
+docker pull ghcr.io/pumpkin-mc/pumpkin:v0.1.0
+```
+
+View all available versions at: https://github.com/Pumpkin-MC/Pumpkin/pkgs/container/pumpkin/versions
+
+## Building from Source
+
+### Dockerfile Structure
+
+The Dockerfile uses a two-stage build:
+
+**Stage 1: Builder (Rust 1-Alpine 3.23)**
+```dockerfile
+FROM rust:1-alpine3.23 AS builder
+ENV RUSTFLAGS="-C target-feature=-crt-static"
+RUN apk add --no-cache musl-dev git
+
+WORKDIR /pumpkin
+COPY . /pumpkin
+
+RUN rustup show active-toolchain || rustup toolchain install
+RUN rustup component add rustfmt
+
+# Build with cargo caching
+RUN --mount=type=cache,sharing=private,target=/pumpkin/target \
+    --mount=type=cache,target=/usr/local/cargo/git/db \
+    --mount=type=cache,target=/usr/local/cargo/registry/ \
+    cargo build --release && cp target/release/pumpkin ./pumpkin.release
+```
+
+**Stage 2: Runtime (Alpine 3.23)**
+```dockerfile
+FROM alpine:3.23
+
+COPY --from=builder /pumpkin/pumpkin.release /bin/pumpkin
+
+WORKDIR /pumpkin
+RUN apk add --no-cache libgcc && chown 2613:2613 .
+
+ENV RUST_BACKTRACE=1
+EXPOSE 25565
+USER 2613:2613
+ENTRYPOINTRY [ "/bin/pumpkin" ]
+HEALTHCHECK CMD nc -z 127.0.0.1 25565 || exit 1
+```
+
+### Build Locally
+
+```bash
+# Clone the repository
+git clone https://github.com/Pumpkin-MC/Pumpkin.git
+cd Pumpkin
+
+# Build the image
+docker build -t pumpkin:local .
+
+# Run the container
+docker run -d \
+  -p 25565:25565 \
+  -v $(pwd)/data:/pumpkin \
+  --name pumpkin-server \
+  pumpkin:local
+```
+
+## Environment Variables
+
+### RUST_BACKTRACE
+
+Controls error backtrace verbosity:
+
+- `0` - No backtrace (minimal output)
+- `1` - Minimal backtrace (default in Docker)
+- `full` - Detailed backtrace with all frames
+
+```yaml
+environment:
+  - RUST_BACKTRACE=full
+```
+
+## Port Configuration
+
+### Default Port
+
+Pumpkin listens on port **25565** by default for Java Edition connections.
+
+```yaml
+ports:
+  - "25565:25565"  # Java Edition
+```
+
+### Custom Ports
+
+To use a different port, update both the Docker port mapping and the server configuration:
+
+```yaml
+ports:
+  - "25566:25566"  # Custom port
+```
+
+Then configure in `config/configuration.toml`:
+```toml
+java_edition_address = '0.0.0.0:25566'
+```
+
+Or in `config/features.toml` if using Bedrock:
+```toml
+address = '0.0.0.0:25566'
+```
+
+## Volume Mounts
+
+### Data Directory
+
+Mount a volume to persist server data:
+
+```yaml
+volumes:
+  - ./data:/pumpkin
+```
+
+This directory contains:
+- `config/` - Server configuration files
+- `world/` - World data and chunks
+- `logs/` - Server logs
+
+### Read-only Configuration
+
+To prevent runtime config changes:
+
+```yaml
+volumes:
+  - ./data:/pumpkin
+  - ./config:/pumpkin/config:ro
+```
+
+## Security
+
+### Security Options
+
+The recommended Docker Compose configuration includes security hardening:
+
+```yaml
+security_opt:
+  - no-new-privileges:true  # Prevent privilege escalation
+cap_drop:
+  - ALL                      # Drop all capabilities
+read_only: true              # Read-only root filesystem
+```
+
+### Non-root User
+
+Pumpkin runs as UID/GID `2613:2613` for security:
+
+```dockerfile
+USER 2613:2613
+```
+
+Ensure your data directory has proper permissions:
+
+```bash
+sudo chown -R 2613:2613 ./data
+```
+
+## Health Checks
+
+The Docker image includes a built-in health check:
+
+```dockerfile
+HEALTHCHECK CMD nc -z 127.0.0.1 25565 || exit 1
+```
+
+View health status:
+
+```bash
+docker ps
+# Look for "healthy" or "unhealthy" in STATUS column
+
+docker inspect --format='{{.State.Health.Status}}' pumpkin
+```
+
+## Interactive Console
+
+To access the server console:
+
+```bash
+# Attach to running container
+docker attach pumpkin-pumpkin-1
+
+# Or use docker exec
+docker exec -it pumpkin-pumpkin-1 /bin/sh
+```
+
+<Note>
+The `stdin_open: true` and `tty: true` options in docker-compose.yml enable console access.
+</Note>
+
+## Updating Pumpkin
+
+### Using Pre-built Images
+
+```bash
+# Pull latest image
+docker compose pull
+
+# Restart with new image
+docker compose up -d
+```
+
+### Rebuilding from Source
+
+```bash
+# Pull latest code
+git pull
+
+# Rebuild and restart
+docker compose up -d --build
+```
+
+## Troubleshooting
+
+### Container Exits Immediately
+
+Check logs for errors:
+```bash
+docker compose logs pumpkin
+```
+
+### Permission Denied
+
+Fix data directory permissions:
+```bash
+sudo chown -R 2613:2613 ./data
+```
+
+### Port Already in Use
+
+Change the host port mapping:
+```yaml
+ports:
+  - "25566:25565"  # Use 25566 on host
+```
+
+### Out of Memory
+
+Increase Docker memory limits:
+```yaml
+deploy:
+  resources:
+    limits:
+      memory: 4G
+```
+
+## Next Steps
+
+- [Performance Tuning](/deployment/performance) - Optimize for production
+- [Configuration](/configuration/overview) - Customize server settings
+- [Pterodactyl Setup](/deployment/pterodactyl) - Deploy with panel management

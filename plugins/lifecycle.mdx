@@ -1,0 +1,231 @@
+---
+title: Plugin Lifecycle
+description: Understanding plugin lifecycle hooks and management
+---
+
+## Plugin Lifecycle Overview
+
+Plugins in Pumpkin go through a well-defined lifecycle managed by the `PluginManager`. Understanding this lifecycle is essential for proper resource management and plugin behavior.
+
+## Lifecycle Hooks
+
+The `Plugin` trait defines two main lifecycle hooks:
+
+### on_load
+
+Called when the plugin is loaded and initialized.
+
+```rust
+fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+    Box::pin(async move {
+        // Initialize plugin resources
+        // Register event handlers
+        // Register commands
+        // Load configuration
+        
+        Ok(())
+    })
+}
+```
+
+**When it's called:**
+- After the plugin is discovered in the `plugins/` directory
+- When the loader successfully loads the plugin binary
+- Before the plugin is marked as active
+
+**What to do here:**
+- Initialize plugin state
+- Register event handlers
+- Register commands
+- Load configuration files
+- Set up database connections
+- Register services
+
+**Return value:**
+- `Ok(())` - Plugin initialized successfully
+- `Err(String)` - Initialization failed, plugin will be unloaded
+
+### on_unload
+
+Called when the plugin is being unloaded or when initialization fails.
+
+```rust
+fn on_unload(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+    Box::pin(async move {
+        // Clean up resources
+        // Unregister commands
+        // Close connections
+        
+        Ok(())
+    })
+}
+```
+
+**When it's called:**
+- When the server shuts down
+- When the plugin is manually unloaded
+- After `on_load` fails (cleanup after failed initialization)
+- Before the plugin is removed from the plugin manager
+
+**What to do here:**
+- Unregister commands
+- Close database connections
+- Save configuration
+- Clean up temporary files
+- Release resources
+
+**Note:** Event handlers are automatically cleaned up when a plugin is unloaded.
+
+## Plugin States
+
+Plugins progress through several states:
+
+```rust
+pub enum PluginState {
+    Loading,           // Plugin is being initialized
+    Loaded,           // Plugin is active and running
+    Failed(String),   // Plugin failed to load
+}
+```
+
+### Checking Plugin State
+
+```rust
+// Check if a plugin is active
+let is_active = plugin_manager.is_plugin_active("my_plugin").await;
+
+// Get plugin state
+if let Some(state) = plugin_manager.get_plugin_state("my_plugin").await {
+    match state {
+        PluginState::Loading => println!("Plugin is loading..."),
+        PluginState::Loaded => println!("Plugin is active"),
+        PluginState::Failed(err) => println!("Plugin failed: {}", err),
+    }
+}
+
+// Wait for a plugin to finish loading
+plugin_manager.wait_for_plugin("my_plugin").await?;
+```
+
+## Lifecycle Example
+
+Here's a complete example showing proper lifecycle management:
+
+```rust
+use std::sync::Arc;
+use pumpkin::plugin::{Plugin, PluginFuture, Context};
+
+pub struct DatabasePlugin {
+    connection: Option<DatabaseConnection>,
+}
+
+impl DatabasePlugin {
+    pub fn new() -> Self {
+        Self { connection: None }
+    }
+}
+
+impl Plugin for DatabasePlugin {
+    fn on_load(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            context.log("Initializing database plugin...");
+
+            // Load configuration
+            let config_path = context.get_data_folder().join("config.toml");
+            let config = load_config(&config_path)
+                .map_err(|e| format!("Failed to load config: {}", e))?;
+
+            // Connect to database
+            let connection = DatabaseConnection::connect(&config.db_url).await
+                .map_err(|e| format!("Database connection failed: {}", e))?;
+            
+            self.connection = Some(connection);
+
+            context.log("Database plugin initialized successfully");
+            Ok(())
+        })
+    }
+
+    fn on_unload(&mut self, context: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            context.log("Shutting down database plugin...");
+
+            // Close database connection
+            if let Some(connection) = self.connection.take() {
+                connection.close().await
+                    .map_err(|e| format!("Failed to close connection: {}", e))?;
+            }
+
+            context.log("Database plugin unloaded");
+            Ok(())
+        })
+    }
+}
+```
+
+## Async Loading
+
+Plugins are loaded asynchronously to prevent blocking the server:
+
+```rust
+// Plugins are loaded in parallel
+let load_tasks = vec![
+    start_loading_plugin("plugin1"),
+    start_loading_plugin("plugin2"),
+    start_loading_plugin("plugin3"),
+];
+
+// All plugins initialize concurrently
+join_all(load_tasks).await;
+```
+
+## Waiting for All Plugins
+
+You can wait for all plugins to finish loading:
+
+```rust
+// Wait for all plugins to complete loading
+plugin_manager.wait_for_all_plugins().await;
+
+// Check if all plugins finished (succeeded or failed)
+let all_done = plugin_manager.all_plugins_loaded().await;
+
+// Get failed plugins
+let failed = plugin_manager.get_failed_plugins().await;
+for (name, error) in failed {
+    println!("Plugin {} failed: {}", name, error);
+}
+```
+
+## Best Practices
+
+### Do's
+
+- Always clean up resources in `on_unload`
+- Return descriptive error messages from `on_load`
+- Use async operations efficiently
+- Validate configuration during `on_load`
+- Handle errors gracefully
+
+### Don'ts
+
+- Don't perform blocking operations in lifecycle hooks
+- Don't assume other plugins are loaded during `on_load`
+- Don't ignore errors from async operations
+- Don't leak resources if initialization fails
+
+## Platform Considerations
+
+### Windows
+
+On Windows, plugins cannot be fully unloaded from memory due to OS limitations. They can only be deactivated. The `on_unload` hook still runs, but the binary remains loaded.
+
+### Linux/macOS
+
+Plugins can be completely unloaded and their memory freed.
+
+## Next Steps
+
+- [Event System](/plugins/events) - Learn about event handling
+- Explore advanced plugin patterns
+- Review plugin API reference

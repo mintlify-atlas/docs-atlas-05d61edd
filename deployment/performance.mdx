@@ -1,0 +1,461 @@
+---
+title: Performance Optimization
+description: Performance tuning and optimization for production Pumpkin servers
+icon: gauge-high
+---
+
+## Overview
+
+Pumpkin is built in Rust with a focus on high performance, leveraging multi-threading, async I/O, and optimized data structures. This guide covers optimization strategies for production deployments.
+
+## Rust Compiler Optimizations
+
+### Release Profile
+
+Pumpkin's `Cargo.toml` is already configured with aggressive optimizations:
+
+```toml Cargo.toml
+[profile.release]
+lto = true              # Link-time optimization
+strip = "debuginfo"     # Strip debug symbols
+codegen-units = 1       # Single codegen unit for better optimization
+```
+
+**Impact:**
+- **LTO:** Enables cross-crate optimizations, reduces binary size, improves runtime performance
+- **Strip:** Removes debug information, significantly reduces binary size
+- **Codegen Units:** Single unit allows maximum optimization at cost of longer compile time
+
+### Always Build with Release Mode
+
+```bash
+# Manual compilation
+cargo build --release
+
+# Docker builds automatically use --release
+# Pterodactyl: set BUILD_RELEASE=1
+```
+
+<Warning>
+Debug builds are 3-5x slower and 5-10x larger. **Never use debug builds in production.**
+</Warning>
+
+## Runtime Configuration
+
+### Tokio Async Runtime
+
+Pumpkin uses Tokio as its async runtime:
+
+```rust
+#[tokio::main]
+async fn main() {
+    // Server code
+}
+```
+
+#### Worker Threads
+
+Tokio automatically uses all available CPU cores. To limit:
+
+```bash
+# Set worker thread count
+TOKIO_WORKER_THREADS=8 ./pumpkin
+```
+
+**Recommendation:** Use number of physical cores (not hyperthreads) for best performance.
+
+### Rayon Parallel Processing
+
+Pumpkin uses Rayon for CPU-intensive tasks like chunk processing:
+
+```toml
+[workspace.dependencies]
+rayon = "1.11"
+```
+
+#### Thread Pool Size
+
+```bash
+# Set Rayon thread pool size
+RAYON_NUM_THREADS=8 ./pumpkin
+```
+
+**Recommendation:** Match `TOKIO_WORKER_THREADS` or use physical core count.
+
+<Note>
+Rayon calls from Tokio runtime are non-blocking and use channels for coordination.
+</Note>
+
+## Memory Optimization
+
+### Heap Allocation
+
+Rust's efficient memory management minimizes allocations:
+
+- Uses `Arc` for shared ownership (reference counting)
+- `Bytes` crate for zero-copy buffer handling
+- `DashMap` for concurrent hash maps
+
+### Caching
+
+Pumpkin implements LRU caching:
+
+```toml
+lru = "0.16.3"
+```
+
+Used for:
+- Chunk data
+- Block states
+- Entity lookups
+
+### Memory Limits
+
+While Rust doesn't have JVM-style heap limits, you can use system limits:
+
+```bash
+# Linux: limit virtual memory
+ulimit -v 4194304  # 4GB in KB
+
+# Docker: set memory limit
+docker run -m 4g pumpkin
+```
+
+## Network Performance
+
+### TCP Configuration
+
+Optimize TCP settings for Minecraft traffic:
+
+```bash
+# Linux sysctl optimizations
+sudo sysctl -w net.core.rmem_max=16777216
+sudo sysctl -w net.core.wmem_max=16777216
+sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
+sudo sysctl -w net.ipv4.tcp_wmem="4096 65536 16777216"
+```
+
+### Packet Compression
+
+Pumpkin supports packet compression (configured in `configuration.toml`):
+
+```toml
+# Compression threshold in bytes
+compression_threshold = 256
+```
+
+**Tuning:**
+- **Higher threshold (512-1024):** Less CPU usage, more bandwidth
+- **Lower threshold (128-256):** More CPU usage, less bandwidth
+- **0:** Compress everything (high CPU load)
+- **-1:** Disable compression (high bandwidth usage)
+
+### Encryption
+
+Encryption is required for online mode. Pumpkin uses efficient AES-CFB8:
+
+```toml
+[workspace.dependencies]
+aes = "0.8"
+cfb8 = "0.8"
+```
+
+No tuning required - already optimized.
+
+## Storage Performance
+
+### World Format
+
+Pumpkin uses Minecraft's Anvil format with async I/O:
+
+- Chunk loading is non-blocking
+- Leverages `tokio::fs` for async file operations
+- Supports concurrent chunk reads
+
+### Storage Backend
+
+**SSD Strongly Recommended:**
+- NVMe SSD: Best performance
+- SATA SSD: Good performance
+- HDD: Acceptable for small worlds, will bottleneck chunk loading
+
+### File System
+
+**Linux:**
+- **ext4:** Recommended, excellent performance
+- **XFS:** Good for large worlds
+- **btrfs:** Supports snapshots but may have performance overhead
+
+**I/O Scheduler:**
+```bash
+# Use mq-deadline or none for SSDs
+echo mq-deadline > /sys/block/nvme0n1/queue/scheduler
+```
+
+## Chunk Loading Optimization
+
+### View Distance
+
+Configured per-player or globally:
+
+```toml
+# Lower view distance = better performance
+default_view_distance = 10  # chunks
+```
+
+**Impact:**
+- View distance of 10: ~1256 chunks per player
+- View distance of 16: ~3216 chunks per player
+
+**Recommendation:**
+- **Small servers (< 10 players):** 12-16 chunks
+- **Medium servers (10-50 players):** 8-12 chunks
+- **Large servers (50+ players):** 6-10 chunks
+
+### Chunk Caching
+
+Pumpkin caches loaded chunks in memory using efficient data structures:
+
+```rust
+// Concurrent chunk storage
+use dashmap::DashMap;
+use rustc_hash::FxHashMap;
+```
+
+## Multi-threading Architecture
+
+### Async Tasks
+
+Pumpkin extensively uses async/await:
+
+```rust
+pub async fn tick(self: &Arc<Self>, server: &Server) {
+    let start = tokio::time::Instant::now();
+    // Parallel chunk processing
+    self.tick_chunks().await;
+    // Entity updates
+    self.tick_entities().await;
+}
+```
+
+### Parallel Processing
+
+CPU-intensive operations use Rayon:
+
+```rust
+// Example: parallel chunk iteration
+use rayon::prelude::*;
+chunks.par_iter().for_each(|chunk| {
+    // Process chunk
+});
+```
+
+### Lock-free Data Structures
+
+Minimizes contention:
+
+```toml
+crossbeam = "0.8"
+dashmap = "6.1"
+arc-swap = "1.8"
+```
+
+## CPU Affinity
+
+### Linux
+
+Pin Pumpkin to specific cores:
+
+```bash
+# Pin to cores 0-7
+taskset -c 0-7 ./pumpkin
+```
+
+### Docker
+
+```yaml
+services:
+  pumpkin:
+    cpuset: "0-7"
+    cpu_count: 8
+```
+
+## Monitoring
+
+### Tokio Console (Development)
+
+Pumpkin supports tokio-console for async task inspection:
+
+```bash
+# Build with console feature
+cargo build --release --features console-subscriber
+
+# Run tokio-console
+tokio-console
+```
+
+### Backtrace Configuration
+
+```bash
+# Minimal backtrace (production)
+RUST_BACKTRACE=0 ./pumpkin
+
+# Detailed backtrace (debugging)
+RUST_BACKTRACE=full ./pumpkin
+```
+
+### System Monitoring
+
+```bash
+# CPU and memory usage
+top -p $(pgrep pumpkin)
+
+# Network traffic
+iftop
+
+# Disk I/O
+iotop
+```
+
+## Benchmarking
+
+### Criterion Benchmarks
+
+Pumpkin includes benchmark suite:
+
+```bash
+cargo bench
+```
+
+### Profile for Optimization
+
+```toml
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+```
+
+```bash
+# Build with profiling symbols
+cargo build --profile profiling
+
+# Use perf on Linux
+perf record -g ./target/profiling/pumpkin
+perf report
+```
+
+## Production Deployment Checklist
+
+### Build Configuration
+
+- [ ] Use `cargo build --release`
+- [ ] Verify LTO is enabled in Cargo.toml
+- [ ] Strip debug symbols
+- [ ] Use latest stable Rust version
+
+### System Configuration
+
+- [ ] Use SSD/NVMe storage
+- [ ] Allocate sufficient RAM (4GB minimum, 8GB+ recommended)
+- [ ] Configure TCP buffer sizes
+- [ ] Set appropriate file descriptor limits
+
+```bash
+# Increase file descriptor limit
+ulimit -n 65536
+```
+
+### Runtime Configuration
+
+- [ ] Set `TOKIO_WORKER_THREADS` to physical core count
+- [ ] Set `RAYON_NUM_THREADS` to match worker threads
+- [ ] Tune compression threshold based on bandwidth
+- [ ] Configure appropriate view distance
+- [ ] Disable debug logging in production
+
+### Security Hardening
+
+- [ ] Run as non-root user (Docker: UID 2613)
+- [ ] Use read-only filesystem where possible
+- [ ] Drop unnecessary capabilities
+- [ ] Enable firewall rules
+
+## Performance Metrics
+
+### Expected Performance
+
+**Hardware:** 8-core CPU, 16GB RAM, NVMe SSD
+
+- **Tick Rate:** Stable 20 TPS (50ms ticks)
+- **Player Capacity:** 100+ concurrent players
+- **Chunk Loading:** < 5ms per chunk (cached)
+- **Memory Usage:** ~2-4GB with 50 players
+
+### Bottleneck Identification
+
+**High CPU Usage:**
+- Reduce view distance
+- Lower compression threshold
+- Reduce entity count
+
+**High Memory Usage:**
+- Lower view distance
+- Reduce loaded chunks
+- Check for memory leaks (report bugs)
+
+**High Disk I/O:**
+- Upgrade to SSD
+- Reduce world save frequency (if configurable)
+- Use filesystem with better I/O performance
+
+**Network Saturation:**
+- Increase compression threshold
+- Reduce view distance
+- Optimize network stack settings
+
+## Docker-Specific Optimizations
+
+### Resource Limits
+
+```yaml
+services:
+  pumpkin:
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 8G
+        reservations:
+          cpus: '4'
+          memory: 4G
+```
+
+### Storage Driver
+
+Use overlay2 for best performance:
+
+```bash
+docker info | grep "Storage Driver"
+# Should show: overlay2
+```
+
+### Host Network Mode (Advanced)
+
+For minimal network overhead:
+
+```yaml
+services:
+  pumpkin:
+    network_mode: host
+```
+
+<Warning>
+Host network mode bypasses Docker networking isolation. Use with caution.
+</Warning>
+
+## Next Steps
+
+- [Server Configuration](/configuration/overview) - Configure Pumpkin settings
+- [Docker Deployment](/deployment/docker) - Deploy with Docker
+- [Advanced Configuration](/configuration/advanced) - Set up logging and monitoring

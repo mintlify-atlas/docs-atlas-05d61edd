@@ -1,0 +1,376 @@
+---
+title: Event Handlers
+description: EventHandler trait and event types for responding to game events
+---
+
+## Overview
+
+The event system in Pumpkin allows plugins to respond to game events. Events are dispatched through the `PluginManager` and handled by registered `EventHandler` implementations.
+
+## EventHandler Trait
+
+```rust
+pub trait EventHandler<E: Payload>: Send + Sync {
+    fn handle<'a>(&'a self, server: &'a Arc<Server>, event: &'a E) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+
+    fn handle_blocking<'a>(
+        &'a self,
+        server: &'a Arc<Server>,
+        event: &'a mut E,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+}
+```
+
+### handle
+
+Handles a non-blocking event (read-only access).
+
+<ParamField path="server" type="&Arc<Server>" required>
+  Reference to the server instance
+</ParamField>
+
+<ParamField path="event" type="&E" required>
+  Immutable reference to the event
+</ParamField>
+
+### handle_blocking
+
+Handles a blocking event (can modify event data).
+
+<ParamField path="server" type="&Arc<Server>" required>
+  Reference to the server instance
+</ParamField>
+
+<ParamField path="event" type="&mut E" required>
+  Mutable reference to the event
+</ParamField>
+
+## EventPriority
+
+```rust
+pub enum EventPriority {
+    Highest,
+    High,
+    Normal,
+    Low,
+    Lowest,
+}
+```
+
+Events are executed in priority order. Lower priority values execute first, allowing higher priority events to override changes.
+
+<ParamField path="Highest" type="EventPriority">
+  Executed last, can see/override all other handler changes
+</ParamField>
+
+<ParamField path="High" type="EventPriority">
+  Executed after Normal handlers
+</ParamField>
+
+<ParamField path="Normal" type="EventPriority">
+  Default priority level
+</ParamField>
+
+<ParamField path="Low" type="EventPriority">
+  Executed before Normal handlers
+</ParamField>
+
+<ParamField path="Lowest" type="EventPriority">
+  Executed first
+</ParamField>
+
+## Payload Trait
+
+```rust
+pub trait Payload: Send + Sync {
+    fn get_name_static() -> &'static str where Self: Sized;
+    fn get_name(&self) -> &'static str;
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+```
+
+All events must implement the `Payload` trait for type-safe event handling.
+
+## Cancellable Trait
+
+```rust
+pub trait Cancellable: Send + Sync {
+    fn cancelled(&self) -> bool;
+    fn set_cancelled(&mut self, cancelled: bool);
+}
+```
+
+Events that can be cancelled implement this trait.
+
+## Event Types
+
+### Player Events
+
+All player events are located in `pumpkin::plugin::player::`
+
+#### PlayerJoinEvent
+
+```rust
+pub struct PlayerJoinEvent {
+    pub player: Arc<Player>,
+    pub join_message: TextComponent,
+}
+```
+
+Fired when a player joins the server.
+
+<ParamField path="player" type="Arc<Player>" required>
+  The player who joined
+</ParamField>
+
+<ParamField path="join_message" type="TextComponent" required>
+  Join message to broadcast (can be modified in blocking handlers)
+</ParamField>
+
+**Example:**
+```rust
+impl EventHandler<PlayerJoinEvent> for MyHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerJoinEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            event.join_message = TextComponent::text(format!(
+                "Welcome {}!",
+                event.player.gameprofile.name
+            ));
+        })
+    }
+}
+```
+
+#### PlayerLeaveEvent
+
+```rust
+pub struct PlayerLeaveEvent {
+    pub player: Arc<Player>,
+    pub leave_message: TextComponent,
+}
+```
+
+Fired when a player leaves the server.
+
+#### PlayerLoginEvent
+
+```rust
+pub struct PlayerLoginEvent {
+    pub player: Arc<Player>,
+    pub kick_message: TextComponent,
+}
+```
+
+Fired when a player attempts to login. Can be cancelled to deny login.
+
+**Example:**
+```rust
+impl EventHandler<PlayerLoginEvent> for MyHandler {
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        event: &'a mut PlayerLoginEvent,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if event.player.gameprofile.name == "BadPlayer" {
+                event.set_cancelled(true);
+                event.kick_message = TextComponent::text("You are banned");
+            }
+        })
+    }
+}
+```
+
+#### PlayerChatEvent
+
+```rust
+pub struct PlayerChatEvent {
+    pub player: Arc<Player>,
+    pub message: String,
+}
+```
+
+Fired when a player sends a chat message. Can be cancelled.
+
+#### PlayerMoveEvent
+
+```rust
+pub struct PlayerMoveEvent {
+    pub player: Arc<Player>,
+    pub from: Vector3<f64>,
+    pub to: Vector3<f64>,
+}
+```
+
+Fired when a player moves.
+
+#### PlayerGamemodeChangeEvent
+
+```rust
+pub struct PlayerGamemodeChangeEvent {
+    pub player: Arc<Player>,
+    pub old_gamemode: GameMode,
+    pub new_gamemode: GameMode,
+}
+```
+
+Fired when a player's gamemode changes. Can be cancelled.
+
+### Block Events
+
+All block events are in `pumpkin::plugin::block::`
+
+#### BlockBreakEvent
+
+```rust
+pub struct BlockBreakEvent {
+    pub player: Arc<Player>,
+    pub block: &'static Block,
+    pub pos: BlockPos,
+}
+```
+
+Fired when a player breaks a block. Can be cancelled.
+
+<ParamField path="player" type="Arc<Player>" required>
+  The player breaking the block
+</ParamField>
+
+<ParamField path="block" type="&'static Block" required>
+  The block being broken
+</ParamField>
+
+<ParamField path="pos" type="BlockPos" required>
+  Position of the block
+</ParamField>
+
+#### BlockPlaceEvent
+
+```rust
+pub struct BlockPlaceEvent {
+    pub player: Arc<Player>,
+    pub block: Block,
+    pub pos: BlockPos,
+}
+```
+
+Fired when a player places a block. Can be cancelled.
+
+### World Events
+
+All world events are in `pumpkin::plugin::world::`
+
+#### ChunkLoadEvent
+
+```rust
+pub struct ChunkLoadEvent {
+    pub world: Arc<World>,
+    pub chunk_pos: Vector2<i32>,
+}
+```
+
+Fired when a chunk is loaded.
+
+#### ChunkSaveEvent
+
+```rust
+pub struct ChunkSaveEvent {
+    pub world: Arc<World>,
+    pub chunk_pos: Vector2<i32>,
+}
+```
+
+Fired when a chunk is saved.
+
+### Server Events
+
+All server events are in `pumpkin::plugin::server::`
+
+#### ServerBroadcastEvent
+
+```rust
+pub struct ServerBroadcastEvent {
+    pub message: TextComponent,
+    pub sender: TextComponent,
+}
+```
+
+Fired when the server broadcasts a message.
+
+<ParamField path="message" type="TextComponent" required>
+  The message being broadcast (can be modified)
+</ParamField>
+
+<ParamField path="sender" type="TextComponent" required>
+  The sender of the message
+</ParamField>
+
+## Registering Event Handlers
+
+```rust
+use pumpkin::plugin::*;
+
+struct MyEventHandler;
+
+impl EventHandler<PlayerJoinEvent> for MyEventHandler {
+    fn handle<'a>(&'a self, server: &'a Arc<Server>, event: &'a PlayerJoinEvent) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            println!("Player joined: {}", event.player.gameprofile.name);
+        })
+    }
+}
+
+// In plugin's on_load:
+context.register_event(
+    Arc::new(MyEventHandler),
+    EventPriority::Normal,
+    false // non-blocking
+).await;
+```
+
+## Firing Events from Plugins
+
+Plugins can fire custom events:
+
+```rust
+use pumpkin::plugin::*;
+
+// Define custom event
+#[derive(Clone)]
+pub struct MyCustomEvent {
+    pub data: String,
+}
+
+impl Payload for MyCustomEvent {
+    fn get_name_static() -> &'static str {
+        "MyCustomEvent"
+    }
+    
+    fn get_name(&self) -> &'static str {
+        Self::get_name_static()
+    }
+    
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+// Fire the event
+let event = MyCustomEvent {
+    data: "Hello".to_string(),
+};
+let result = context.plugin_manager.fire(event).await;
+```

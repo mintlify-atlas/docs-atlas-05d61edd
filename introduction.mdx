@@ -1,0 +1,127 @@
+---
+title: Introduction to Pumpkin
+description: A fast, efficient Minecraft server built entirely in Rust
+---
+
+## What is Pumpkin?
+
+Pumpkin is a Minecraft server implementation built entirely in Rust, designed to offer a fast, efficient, and customizable experience. It supports both Java Edition (1.21.11) and Bedrock Edition clients, allowing players from different platforms to connect to the same server.
+
+Built from the ground up with performance and security in mind, Pumpkin leverages Rust's multi-threading capabilities and memory safety guarantees to deliver a server that's both blazingly fast and reliable.
+
+<Note>
+  Pumpkin is currently under heavy development. While many core features are functional, some features are still being implemented. See the [roadmap](https://github.com/Pumpkin-MC/Pumpkin/issues/449) for details on the path to the 1.0.0 release.
+</Note>
+
+## Key benefits
+
+### Performance
+
+Pumpkin leverages multi-threading for maximum speed and efficiency. The async Rust architecture with Tokio and Rayon allows the server to handle intensive tasks without blocking, providing smooth gameplay even under heavy load.
+
+- **Multi-threaded architecture**: Parallel chunk loading, world generation, and entity processing
+- **Efficient memory usage**: Rust's ownership system prevents memory leaks and reduces overhead
+- **Optimized protocol implementation**: Fast packet serialization and compression
+
+### Compatibility
+
+Pumpkin aims to provide full compatibility with vanilla Minecraft mechanics while supporting multiple client types:
+
+- **Java Edition 1.21.11**: Full protocol support for the latest Java Edition clients
+- **Bedrock Edition**: Cross-platform play with Bedrock clients
+- **Proxy support**: Works with Velocity and BungeeCord proxies
+- **Vanilla world format**: Load and save existing Minecraft worlds
+
+### Security
+
+Security is a top priority in Pumpkin's design:
+
+- **Memory safety**: Rust's compiler prevents common vulnerabilities like buffer overflows
+- **Online mode**: Authenticate players with Mojang's servers
+- **Encryption**: Built-in packet encryption to protect player data
+- **Active development**: Regular updates to address known security exploits
+
+### Flexibility
+
+Pumpkin is highly configurable, allowing you to customize nearly every aspect of your server:
+
+- **TOML configuration**: Easy-to-read configuration files (`configuration.toml` and `features.toml`)
+- **Feature toggles**: Disable unnecessary features to reduce resource usage
+- **Extensive options**: Configure view distance, game rules, networking, and more
+- **Plugin support**: Extend functionality with custom plugins (in development)
+
+## Who should use Pumpkin?
+
+### Server administrators
+
+If you're running a Minecraft server and want:
+
+- Better performance than traditional Java servers
+- Lower memory usage and CPU overhead
+- Modern, maintainable codebase
+- Cross-platform client support (Java + Bedrock)
+
+Pumpkin provides a compelling alternative to existing server software.
+
+### Developers
+
+Pumpkin is ideal for developers who want to:
+
+- Contribute to an open-source Minecraft server project
+- Learn Rust programming with a real-world application
+- Build custom plugins and server modifications
+- Experiment with server-side Minecraft mechanics
+
+### Hosting providers
+
+Hosting providers benefit from Pumpkin's:
+
+- Reduced resource consumption per server instance
+- Docker support for easy containerized deployment
+- Pterodactyl egg for panel integration
+- Efficient multi-threading for better hardware utilization
+
+<Warning>
+  Pumpkin is in active development and may have missing features or occasional bugs. It's recommended to thoroughly test before using in production environments.
+</Warning>
+
+## Current features
+
+Pumpkin already implements many core Minecraft features:
+
+- **Protocol**: Server status/ping, encryption, compression, Java/Bedrock support
+- **World**: Chunk loading and saving, world time, borders, lighting, entity spawning, liquid physics
+- **Player**: Skins, movement, inventory, experience, hunger, eating
+- **Entities**: Non-living entities, entity effects, mobs, animals
+- **Server**: RCON, Query, inventories, particles, chat, commands, permissions, translations
+- **Proxy**: Bungeecord and Velocity support
+
+For a complete list of implemented and planned features, see the [GitHub README](https://github.com/Pumpkin-MC/Pumpkin).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="bolt" href="/quickstart">
+    Get your server running in minutes
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Detailed installation instructions
+  </Card>
+  
+  <Card title="Configuration" icon="sliders" href="/configuration/overview">
+    Configure your server settings
+  </Card>
+  
+  <Card title="Contributing" icon="code-branch" href="https://github.com/Pumpkin-MC/Pumpkin/blob/master/CONTRIBUTING.md">
+    Help improve Pumpkin
+  </Card>
+</CardGroup>
+
+## Community and support
+
+Join the Pumpkin community to get help, share ideas, and stay updated:
+
+- **Discord**: Join our [Discord server](https://discord.gg/pumpkinmc) for community support and discussions
+- **GitHub**: Report issues and contribute at [github.com/Pumpkin-MC/Pumpkin](https://github.com/Pumpkin-MC/Pumpkin)
+- **Documentation**: Browse these docs for guides and reference materials

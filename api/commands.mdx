@@ -1,0 +1,361 @@
+---
+title: Command Registration API
+description: CommandTree API for registering custom commands with the server
+---
+
+## Overview
+
+Pumpkin uses a tree-based command system that allows plugins to register custom commands with complex syntax, arguments, and permissions.
+
+## CommandTree Structure
+
+```rust
+pub struct CommandTree {
+    pub nodes: Vec<Node>,
+    pub children: Vec<usize>,
+    pub names: Vec<String>,
+    pub description: Cow<'static, str>,
+}
+```
+
+<ParamField path="nodes" type="Vec<Node>">
+  Command nodes representing the command structure
+</ParamField>
+
+<ParamField path="children" type="Vec<usize>">
+  Indices of root children
+</ParamField>
+
+<ParamField path="names" type="Vec<String>">
+  Command names and aliases
+</ParamField>
+
+<ParamField path="description" type="Cow<'static, str>">
+  Command description
+</ParamField>
+
+## Creating Commands
+
+### Basic Command
+
+```rust
+use pumpkin::command::tree::CommandTree;
+use pumpkin::command::CommandSender;
+use pumpkin_util::text::TextComponent;
+
+let tree = CommandTree::new(["hello"], "Says hello")
+    .execute(|sender: &CommandSender, _server, _args| {
+        Box::pin(async move {
+            sender.send_message(TextComponent::text("Hello, world!")).await;
+            Ok(())
+        })
+    });
+
+context.register_command(tree, "myplugin.hello").await;
+```
+
+### Command with Arguments
+
+```rust
+use pumpkin::command::args::simple::SimpleArgConsumer;
+use pumpkin::command::tree::CommandTree;
+
+let tree = CommandTree::new(["greet"], "Greets a player")
+    .with_child(
+        CommandTree::argument("player", SimpleArgConsumer)
+            .execute(|sender, _server, args| {
+                Box::pin(async move {
+                    let player_name: String = args.get("player")?.parse()?;
+                    sender.send_message(
+                        TextComponent::text(format!("Hello, {}!", player_name))
+                    ).await;
+                    Ok(())
+                })
+            })
+    );
+
+context.register_command(tree, "myplugin.greet").await;
+```
+
+## Node Types
+
+### Literal
+
+Matches an exact string.
+
+```rust
+CommandTree::literal("help")
+```
+
+### Argument
+
+Consumes and parses an argument.
+
+```rust
+use pumpkin::command::args::simple::SimpleArgConsumer;
+
+CommandTree::argument("amount", SimpleArgConsumer)
+```
+
+### Execute
+
+Defines the command execution logic.
+
+```rust
+.execute(|sender: &CommandSender, server: &Server, args: &ConsumedArgs| {
+    Box::pin(async move {
+        // Command logic here
+        Ok(())
+    })
+})
+```
+
+## Argument Types
+
+Pumpkin provides various argument consumers:
+
+### SimpleArgConsumer
+
+Consumes a single word argument.
+
+```rust
+use pumpkin::command::args::simple::SimpleArgConsumer;
+
+CommandTree::argument("name", SimpleArgConsumer)
+```
+
+### Position Arguments
+
+```rust
+use pumpkin::command::args::position_block::PositionBlockConsumer;
+use pumpkin::command::args::position_3d::Position3DConsumer;
+
+// Block position
+CommandTree::argument("pos", PositionBlockConsumer)
+
+// 3D position with decimals
+CommandTree::argument("pos", Position3DConsumer)
+```
+
+### Entity Selector
+
+```rust
+use pumpkin::command::args::entities::EntitySelectorConsumer;
+
+CommandTree::argument("target", EntitySelectorConsumer)
+```
+
+### Resource Arguments
+
+```rust
+use pumpkin::command::args::resource::item::ResourceItemConsumer;
+use pumpkin::command::args::resource::effect::ResourceEffectConsumer;
+
+// Item
+CommandTree::argument("item", ResourceItemConsumer)
+
+// Effect
+CommandTree::argument("effect", ResourceEffectConsumer)
+```
+
+## Command Execution
+
+### CommandSender
+
+```rust
+pub enum CommandSender {
+    Player(Arc<Player>),
+    Rcon(RconClient),
+    Console,
+}
+```
+
+**Methods:**
+
+```rust
+impl CommandSender {
+    pub async fn send_message(&self, text: TextComponent);
+    pub fn position(&self) -> Option<Vector3<f64>>;
+    pub fn as_player(&self) -> Option<&Arc<Player>>;
+    pub async fn has_permission(&self, server: &Server, permission: &str) -> bool;
+}
+```
+
+### ConsumedArgs
+
+Access parsed arguments:
+
+```rust
+use std::collections::HashMap;
+
+type ConsumedArgs<'a> = HashMap<&'a str, Box<dyn Any + Send>>;
+
+// In execute handler:
+let amount: i32 = args.get("amount")?
+    .downcast_ref::<String>()
+    .ok_or(CommandError::InvalidConsumption(Some("amount".to_string())))?
+    .parse()
+    .map_err(|_| CommandError::CommandFailed(
+        TextComponent::text("Invalid number")
+    ))?;
+```
+
+## Complex Command Example
+
+```rust
+use pumpkin::command::tree::CommandTree;
+use pumpkin::command::args::simple::SimpleArgConsumer;
+use pumpkin::command::args::entities::EntitySelectorConsumer;
+use pumpkin_util::text::TextComponent;
+use pumpkin_util::text::color::NamedColor;
+
+let tree = CommandTree::new(["teleport", "tp"], "Teleport to player or coordinates")
+    .with_child(
+        // /teleport <target>
+        CommandTree::argument("target", EntitySelectorConsumer)
+            .execute(|sender, server, args| {
+                Box::pin(async move {
+                    let Some(player) = sender.as_player() else {
+                        return Err(CommandError::CommandFailed(
+                            TextComponent::text("Only players can use this")
+                        ));
+                    };
+                    
+                    let selector: TargetSelector = args.get("target")?;
+                    let entities = server.select_entities(&selector, Some(sender));
+                    
+                    if let Some(target) = entities.first() {
+                        let pos = target.get_entity().pos.load();
+                        player.clone().teleport(
+                            pos,
+                            None,
+                            None,
+                            player.world.load().clone()
+                        ).await;
+                        
+                        sender.send_message(
+                            TextComponent::text("Teleported!").color_named(NamedColor::Green)
+                        ).await;
+                    }
+                    
+                    Ok(())
+                })
+            })
+    )
+    .with_child(
+        // /teleport <x> <y> <z>
+        CommandTree::argument("x", SimpleArgConsumer)
+            .with_child(
+                CommandTree::argument("y", SimpleArgConsumer)
+                    .with_child(
+                        CommandTree::argument("z", SimpleArgConsumer)
+                            .execute(|sender, _server, args| {
+                                Box::pin(async move {
+                                    let Some(player) = sender.as_player() else {
+                                        return Err(CommandError::CommandFailed(
+                                            TextComponent::text("Only players can use this")
+                                        ));
+                                    };
+                                    
+                                    let x: f64 = args.get("x")?
+                                        .downcast_ref::<String>()
+                                        .unwrap()
+                                        .parse()
+                                        .map_err(|_| CommandError::CommandFailed(
+                                            TextComponent::text("Invalid X coordinate")
+                                        ))?;
+                                    
+                                    let y: f64 = args.get("y")?
+                                        .downcast_ref::<String>()
+                                        .unwrap()
+                                        .parse()
+                                        .map_err(|_| CommandError::CommandFailed(
+                                            TextComponent::text("Invalid Y coordinate")
+                                        ))?;
+                                    
+                                    let z: f64 = args.get("z")?
+                                        .downcast_ref::<String>()
+                                        .unwrap()
+                                        .parse()
+                                        .map_err(|_| CommandError::CommandFailed(
+                                            TextComponent::text("Invalid Z coordinate")
+                                        ))?;
+                                    
+                                    player.clone().teleport(
+                                        Vector3::new(x, y, z),
+                                        None,
+                                        None,
+                                        player.world.load().clone()
+                                    ).await;
+                                    
+                                    sender.send_message(
+                                        TextComponent::text(format!(
+                                            "Teleported to {}, {}, {}",
+                                            x, y, z
+                                        )).color_named(NamedColor::Green)
+                                    ).await;
+                                    
+                                    Ok(())
+                                })
+                            })
+                    )
+            )
+    );
+
+context.register_command(tree, "myplugin.teleport").await;
+```
+
+## Command Permissions
+
+Permissions are automatically namespaced with the plugin name:
+
+```rust
+// Register command with permission
+context.register_command(tree, "admin").await;
+// Full permission node: "myplugin:admin"
+
+// Or use full node:
+context.register_command(tree, "myplugin:admin.teleport").await;
+```
+
+## Command Suggestions
+
+Argument consumers can provide tab-completion suggestions:
+
+```rust
+use pumpkin::command::args::ArgumentConsumer;
+use pumpkin_protocol::java::client::play::CommandSuggestion;
+
+struct CustomArgConsumer;
+
+#[async_trait::async_trait]
+impl ArgumentConsumer for CustomArgConsumer {
+    async fn consume<'a>(
+        &self,
+        _src: &CommandSender,
+        _server: &Server,
+        args: &mut RawArgs<'a>,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
+        args.pop().map(|s| Box::new(s.to_string()) as Box<dyn std::any::Any + Send>)
+    }
+    
+    async fn suggest<'a>(
+        &self,
+        _sender: &CommandSender,
+        _server: &'a Server,
+        _input: &'a str,
+    ) -> Result<Option<Vec<CommandSuggestion>>, CommandError> {
+        Ok(Some(vec![
+            CommandSuggestion::new("option1", None),
+            CommandSuggestion::new("option2", None),
+            CommandSuggestion::new("option3", None),
+        ]))
+    }
+}
+```
+
+## Unregistering Commands
+
+```rust
+context.unregister_command("mycommand").await;
+```

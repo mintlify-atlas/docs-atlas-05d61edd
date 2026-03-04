@@ -1,0 +1,391 @@
+---
+title: Pterodactyl Panel
+description: Deploy Pumpkin on Pterodactyl game server panel
+icon: server
+---
+
+## Overview
+
+Pumpkin provides an official Pterodactyl egg for easy deployment and management through the Pterodactyl panel. This setup automatically builds Pumpkin from source during installation.
+
+<Warning>
+Building Pumpkin requires approximately **4GB of RAM**. Ensure your Pterodactyl node has sufficient resources allocated.
+</Warning>
+
+## Prerequisites
+
+- Pterodactyl Panel installed and configured
+- Node with at least 4GB RAM available
+- Docker configured on the node
+
+## Installation
+
+### Step 1: Import the Egg
+
+1. Download the egg file: [egg-pumpkin.json](https://github.com/Pumpkin-MC/Pumpkin/blob/master/egg-pumpkin.json)
+2. In your Pterodactyl admin panel, navigate to **Nests**
+3. Select or create a nest for Pumpkin
+4. Click **Import Egg**
+5. Upload `egg-pumpkin.json`
+
+### Step 2: Configure Node Resources
+
+Update your node's Docker configuration to allow sufficient build resources:
+
+```yaml /etc/pterodactyl/config.yml
+docker:
+  installer_limits:
+    memory: 4096  # 4GB minimum for building
+    cpu: 200      # Increase for faster builds (optional)
+```
+
+### Step 3: Create Server
+
+1. Create a new server in Pterodactyl
+2. Select the **Pumpkin** egg
+3. Allocate at least **4GB RAM** for installation
+4. Assign a port (default: 25565)
+5. Click **Create Server**
+
+### Step 4: Initial Build
+
+The first startup will:
+1. Clone the Pumpkin repository
+2. Build from source (this takes several minutes)
+3. Generate default configuration files
+4. Start the server
+
+Monitor the installation progress in the console.
+
+## Egg Configuration
+
+### Docker Image
+
+The egg uses the official Pterodactyl Alpine image:
+
+```json
+"docker_images": {
+  "Alpine": "ghcr.io/pterodactyl/yolks:alpine"
+}
+```
+
+### Startup Command
+
+```bash
+./pumpkin
+```
+
+### Installation Script
+
+The egg runs this script during installation:
+
+```bash
+#!/bin/ash
+set -eux
+
+apk add --no-cache musl-dev git
+mkdir -p /mnt/server
+
+REPO_URL="${GIT_URL:-https://github.com/Pumpkin-MC/Pumpkin.git}"
+
+if [ -n "$GIT_BRANCH" ]; then
+    git clone --depth 1 --single-branch --branch "$GIT_BRANCH" "$REPO_URL"
+else
+    git clone --depth 1 --single-branch "$REPO_URL"
+fi
+
+if [ -n "$GIT_COMMIT" ]; then
+    git checkout "$GIT_COMMIT"
+fi
+
+cd Pumpkin
+
+export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-default}
+
+if [[ "$BUILD_RELEASE" == "1" || "$BUILD_RELEASE" == "true" ]]; then
+    cargo build --release
+    strip target/release/pumpkin
+    cp target/release/pumpkin /mnt/server/pumpkin
+else
+    cargo build
+    cp target/debug/pumpkin /mnt/server/pumpkin
+fi
+
+# Generate initial config
+cd /mnt/server
+timeout 1 ./pumpkin
+```
+
+## Environment Variables
+
+### RUST_BACKTRACE
+
+**Description:** Controls error backtrace verbosity
+
+**Options:**
+- `0` - No backtrace
+- `1` - Minimal backtrace (default)
+- `full` - Detailed backtrace with all frames
+
+**Default:** `1`
+
+**User Editable:** Yes
+
+### BUILD_RELEASE
+
+**Description:** Build type (release or debug)
+
+**Options:**
+- `1` or `true` - Release build (optimized, recommended)
+- `0` or `false` - Debug build (larger, slower, more diagnostics)
+
+**Default:** `1`
+
+**Scope:** Installation only
+
+**User Editable:** Yes
+
+<Note>
+Release builds are significantly smaller and faster. Use debug builds only for development.
+</Note>
+
+### GIT_BRANCH
+
+**Description:** Git branch to clone
+
+**Default:** Empty (uses default branch)
+
+**Scope:** Installation only
+
+**User Editable:** Yes
+
+**Example:**
+```
+master
+```
+
+### GIT_COMMIT
+
+**Description:** Specific git commit to checkout
+
+**Format:** 7-40 character commit hash
+
+**Default:** Empty (uses latest)
+
+**Scope:** Installation only
+
+**User Editable:** Yes
+
+**Example:**
+```
+a1b2c3d
+```
+
+### GIT_URL
+
+**Description:** Git repository URL
+
+**Default:** `https://github.com/Pumpkin-MC/Pumpkin.git`
+
+**Scope:** Installation only
+
+**User Editable:** Yes
+
+<Tip>
+Use this to install from a fork or custom repository.
+</Tip>
+
+### CARGO_BUILD_JOBS
+
+**Description:** Number of parallel build jobs
+
+**Default:** `default` (uses all available cores)
+
+**Scope:** Installation only
+
+**User Editable:** Yes
+
+**Options:**
+- `default` - Maximum available threads
+- `1` - Single-threaded (use if experiencing deadlocks)
+- `2`, `3`, etc. - Specific number of threads
+
+<Warning>
+If you encounter build deadlocks, reduce this value to `1` or `2`.
+</Warning>
+
+## Configuration File Management
+
+The egg automatically manages these configuration files:
+
+### config/configuration.toml
+
+```toml
+java_edition_address = '0.0.0.0:{{server.allocations.default.port}}'
+```
+
+The port is automatically updated based on Pterodactyl allocation.
+
+### config/features.toml
+
+```toml
+address = '0.0.0.0:{{server.allocations.default.port}}'
+```
+
+Bedrock address is also automatically configured.
+
+## Server Management
+
+### Starting the Server
+
+Click **Start** in the Pterodactyl console.
+
+### Stopping the Server
+
+The egg uses the `stop` command:
+
+```bash
+stop
+```
+
+You can also use the **Stop** button in Pterodactyl.
+
+### Startup Detection
+
+The egg detects successful startup by monitoring for:
+
+```
+Server is now running.
+```
+
+### Reinstalling
+
+To rebuild from source:
+
+1. Go to **Settings** tab
+2. Click **Reinstall Server**
+3. Confirm the reinstall
+
+<Warning>
+Reinstalling will delete the server executable and rebuild it. Your world data and configs will be preserved.
+</Warning>
+
+## Resource Allocation
+
+### Minimum Requirements
+
+- **RAM:** 2GB runtime, 4GB for installation
+- **CPU:** 2 cores minimum
+- **Disk:** 1GB for server + world size
+
+### Recommended for Production
+
+- **RAM:** 4GB+
+- **CPU:** 4+ cores
+- **Disk:** 5GB+ depending on world size
+
+### Memory Settings
+
+Adjust in server settings:
+
+```yaml
+Build:
+  Memory Limit: 4096 MB
+
+Runtime:
+  Memory Limit: 2048 MB (minimum)
+```
+
+## Port Configuration
+
+Pterodactyl automatically assigns and configures ports:
+
+1. **Primary Allocation:** Java Edition port (default 25565)
+2. **Additional Allocations:** Can be added for RCON, Query, etc.
+
+The egg automatically updates configuration files with allocated ports.
+
+## Updating Pumpkin
+
+### Update to Latest Master
+
+1. Stop the server
+2. Reinstall the server (Settings → Reinstall)
+3. Wait for build to complete
+4. Start the server
+
+### Update to Specific Version
+
+1. Stop the server
+2. Set `GIT_BRANCH` or `GIT_COMMIT` in Startup tab
+3. Reinstall the server
+4. Start the server
+
+## Troubleshooting
+
+### Build Fails with Out of Memory
+
+Increase installer memory limits:
+
+```yaml
+docker:
+  installer_limits:
+    memory: 4096  # or higher
+```
+
+Then reinstall the server.
+
+### Build Deadlock
+
+Reduce `CARGO_BUILD_JOBS`:
+
+1. Go to **Startup** tab
+2. Set **Cargo build jobs** to `1`
+3. Reinstall the server
+
+### Server Won't Start
+
+Check the console for errors:
+
+1. Look for `RUST_BACKTRACE` output
+2. Verify port is not in use
+3. Check configuration files in `config/` directory
+
+### Configuration Not Updating
+
+Manually edit files through Pterodactyl file manager:
+
+1. Navigate to **Files** tab
+2. Edit `config/configuration.toml` or `config/features.toml`
+3. Save and restart server
+
+### Port Already Allocated
+
+1. Go to **Network** tab
+2. Change primary allocation
+3. Restart server (egg auto-updates config)
+
+## Performance Tips
+
+- Allocate at least **4GB RAM** for production servers
+- Use **release builds** (BUILD_RELEASE=1)
+- Enable **CPU pinning** in Pterodactyl for better performance
+- See [Performance Guide](/deployment/performance) for tuning tips
+
+## Security
+
+### File Permissions
+
+Pterodactyl manages permissions automatically. Server runs as the container user.
+
+### Network Security
+
+- Use Pterodactyl's firewall features
+- Limit port exposure to necessary allocations
+- Enable Velocity/Bungeecord forwarding if using proxies
+
+## Next Steps
+
+- [Configuration Guide](/configuration/overview) - Customize server settings
+- [Performance Tuning](/deployment/performance) - Optimize for your workload
+- [Docker Deployment](/deployment/docker) - Alternative deployment method

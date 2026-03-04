@@ -1,0 +1,339 @@
+---
+title: Server API
+description: Server instance methods for managing worlds, players, and server state
+---
+
+## Overview
+
+The `Server` struct represents a Minecraft server instance and provides methods for managing worlds, players, commands, permissions, and server state.
+
+## Server Structure
+
+```rust
+pub struct Server {
+    pub basic_config: BasicConfiguration,
+    pub advanced_config: AdvancedConfiguration,
+    pub plugin_manager: Arc<PluginManager>,
+    pub permission_manager: Arc<RwLock<PermissionManager>>,
+    pub command_dispatcher: RwLock<CommandDispatcher>,
+    pub block_registry: Arc<BlockRegistry>,
+    pub item_registry: Arc<ItemRegistry>,
+    pub worlds: ArcSwap<Vec<Arc<World>>>,
+    pub dimensions: Vec<Dimension>,
+    // ... additional fields
+}
+```
+
+## Player Management
+
+### get_player_by_name
+
+```rust
+pub fn get_player_by_name(&self, name: &str) -> Option<Arc<Player>>
+```
+
+Searches for a player by username across all worlds.
+
+<ParamField path="name" type="&str" required>
+  Username of the player to search for
+</ParamField>
+
+<ResponseField name="returns" type="Option<Arc<Player>>">
+  Player if found, or `None`
+</ResponseField>
+
+### get_player_by_uuid
+
+```rust
+pub fn get_player_by_uuid(&self, id: uuid::Uuid) -> Option<Arc<Player>>
+```
+
+Searches for a player by UUID across all worlds.
+
+<ParamField path="id" type="uuid::Uuid" required>
+  UUID of the player to search for
+</ParamField>
+
+<ResponseField name="returns" type="Option<Arc<Player>>">
+  Player if found, or `None`
+</ResponseField>
+
+### get_all_players
+
+```rust
+pub fn get_all_players(&self) -> Vec<Arc<Player>>
+```
+
+Returns all players from all worlds.
+
+<ResponseField name="returns" type="Vec<Arc<Player>>">
+  Vector of all connected players
+</ResponseField>
+
+### get_player_count
+
+```rust
+pub fn get_player_count(&self) -> usize
+```
+
+Counts the total number of players across all worlds.
+
+<ResponseField name="returns" type="usize">
+  Total number of connected players
+</ResponseField>
+
+### get_random_player
+
+```rust
+pub fn get_random_player(&self) -> Option<Arc<Player>>
+```
+
+Returns a random player from any world, or `None` if all worlds are empty.
+
+<ResponseField name="returns" type="Option<Arc<Player>>">
+  Random player, or `None` if no players online
+</ResponseField>
+
+## World Management
+
+### get_world_from_dimension
+
+```rust
+pub fn get_world_from_dimension(&self, dimension: &Dimension) -> Arc<World>
+```
+
+Gets the world instance for a specific dimension.
+
+<ParamField path="dimension" type="&Dimension" required>
+  Dimension type (OVERWORLD, THE_NETHER, or THE_END)
+</ParamField>
+
+<ResponseField name="returns" type="Arc<World>">
+  World instance for the dimension
+</ResponseField>
+
+**Example:**
+```rust
+use pumpkin_data::dimension::Dimension;
+
+let overworld = server.get_world_from_dimension(&Dimension::OVERWORLD);
+let nether = server.get_world_from_dimension(&Dimension::THE_NETHER);
+```
+
+## Broadcasting
+
+### broadcast_packet_all
+
+```rust
+pub async fn broadcast_packet_all<P: ClientPacket>(&self, packet: &P)
+```
+
+Broadcasts a packet to all players in all worlds.
+
+<ParamField path="packet" type="&P: ClientPacket" required>
+  Packet to broadcast
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin_protocol::java::client::play::CDisconnect;
+
+server.broadcast_packet_all(&CDisconnect::new(
+    TextComponent::text("Server restarting")
+)).await;
+```
+
+### broadcast_message
+
+```rust
+pub async fn broadcast_message(
+    &self,
+    message: &TextComponent,
+    sender_name: &TextComponent,
+    chat_type: u8,
+    target_name: Option<&TextComponent>,
+)
+```
+
+Broadcasts a message to all players.
+
+<ParamField path="message" type="&TextComponent" required>
+  Message to broadcast
+</ParamField>
+
+<ParamField path="sender_name" type="&TextComponent" required>
+  Name of the sender
+</ParamField>
+
+<ParamField path="chat_type" type="u8" required>
+  Chat type (0 = chat, 1 = system, etc.)
+</ParamField>
+
+<ParamField path="target_name" type="Option<&TextComponent>">
+  Optional target name for directed messages
+</ParamField>
+
+## Difficulty Management
+
+### get_difficulty
+
+```rust
+pub fn get_difficulty(&self) -> Difficulty
+```
+
+Gets the current difficulty of the server.
+
+<ResponseField name="returns" type="Difficulty">
+  Current difficulty (Peaceful, Easy, Normal, Hard)
+</ResponseField>
+
+### set_difficulty
+
+```rust
+pub async fn set_difficulty(&self, difficulty: Difficulty, force_update: bool)
+```
+
+Sets the difficulty of the server.
+
+<ParamField path="difficulty" type="Difficulty" required>
+  New difficulty level
+</ParamField>
+
+<ParamField path="force_update" type="bool" required>
+  If `true`, updates even if difficulty is locked
+</ParamField>
+
+**Example:**
+```rust
+use pumpkin_util::Difficulty;
+
+server.set_difficulty(Difficulty::Hard, false).await;
+```
+
+## Entity Selection
+
+### select_entities
+
+```rust
+pub fn select_entities(
+    &self,
+    target_selector: &TargetSelector,
+    source: Option<&CommandSender>,
+) -> Vec<Arc<dyn EntityBase>>
+```
+
+Selects entities based on a target selector (e.g., `@a`, `@e`, `@p`).
+
+<ParamField path="target_selector" type="&TargetSelector" required>
+  Target selector with filters
+</ParamField>
+
+<ParamField path="source" type="Option<&CommandSender>">
+  Source of the selection (for relative positions)
+</ParamField>
+
+<ResponseField name="returns" type="Vec<Arc<dyn EntityBase>>">
+  Vector of selected entities
+</ResponseField>
+
+**Example:**
+```rust
+use pumpkin::command::args::entities::*;
+
+let selector = TargetSelector {
+    selector_type: EntitySelectorType::AllPlayers,
+    conditions: vec![],
+};
+let players = server.select_entities(&selector, None);
+```
+
+## Performance Metrics
+
+### get_tps
+
+```rust
+pub fn get_tps(&self) -> f64
+```
+
+Returns the current Ticks Per Second (TPS).
+
+<ResponseField name="returns" type="f64">
+  Current TPS value
+</ResponseField>
+
+### get_mspt
+
+```rust
+pub fn get_mspt(&self) -> f64
+```
+
+Returns the average Milliseconds Per Tick (MSPT).
+
+<ResponseField name="returns" type="f64">
+  Average MSPT
+</ResponseField>
+
+### get_average_tick_time_nanos
+
+```rust
+pub fn get_average_tick_time_nanos(&self) -> i64
+```
+
+Gets the rolling average tick time over the last 100 ticks, in nanoseconds.
+
+<ResponseField name="returns" type="i64">
+  Average tick time in nanoseconds
+</ResponseField>
+
+## Task Management
+
+### spawn_task
+
+```rust
+pub fn spawn_task<F>(&self, task: F) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+```
+
+Spawns a task associated with the server. Tasks are awaited when the server stops.
+
+<ParamField path="task" type="F: Future + Send + 'static" required>
+  Async task to spawn
+</ParamField>
+
+<ResponseField name="returns" type="JoinHandle<F::Output>">
+  Handle to the spawned task
+</ResponseField>
+
+**Example:**
+```rust
+server.spawn_task(async {
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    println!("Task completed!");
+});
+```
+
+## Accessing Server from Context
+
+```rust
+// In event handlers or command executors
+let server = &context.server;
+
+// Get all players
+let players = server.get_all_players();
+
+// Broadcast a message
+server.broadcast_message(
+    &TextComponent::text("Server announcement"),
+    &TextComponent::text("Server"),
+    1,
+    None
+).await;
+
+// Check TPS
+let tps = server.get_tps();
+if tps < 15.0 {
+    println!("Warning: Low TPS detected: {}", tps);
+}
+```

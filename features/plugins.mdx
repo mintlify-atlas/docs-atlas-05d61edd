@@ -1,0 +1,389 @@
+---
+title: Plugin System
+description: Extensible plugin API for customizing server behavior
+---
+
+Pumpkin provides a powerful plugin system allowing developers to extend server functionality through native Rust plugins.
+
+## Plugin API
+
+Plugins are loaded dynamically and interact with the server through a versioned API.
+
+### Plugin API Version
+
+```rust
+pub const PLUGIN_API_VERSION: u32 = 2;
+```
+
+Source: `pumpkin/src/plugin/mod.rs:24`
+
+The API version ensures binary compatibility between plugins and server versions.
+
+## Creating a Plugin
+
+### Plugin Trait
+
+Implement the `Plugin` trait:
+
+```rust
+pub trait Plugin: Send + Sync + 'static {
+    fn on_load(&mut self, _server: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move { Ok(()) })
+    }
+    
+    fn on_unload(&mut self, _server: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move { Ok(()) })
+    }
+}
+```
+
+Source: `pumpkin/src/plugin/api/mod.rs:33-58`
+
+### Plugin Metadata
+
+Define plugin information:
+
+```rust
+pub struct PluginMetadata<'s> {
+    pub name: &'s str,
+    pub version: &'s str,
+    pub authors: &'s str,
+    pub description: &'s str,
+}
+```
+
+Source: `pumpkin/src/plugin/api/mod.rs:15-24`
+
+### Example Plugin
+
+```rust
+use pumpkin::plugin::api::*;
+
+pub struct MyPlugin;
+
+impl Plugin for MyPlugin {
+    fn on_load(&mut self, server: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            println!("MyPlugin loaded!");
+            Ok(())
+        })
+    }
+    
+    fn on_unload(&mut self, server: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            println!("MyPlugin unloaded!");
+            Ok(())
+        })
+    }
+}
+
+#[no_mangle]
+pub fn plugin_entry() -> Box<dyn Plugin> {
+    Box::new(MyPlugin)
+}
+```
+
+## Plugin Context
+
+Plugins receive a `Context` providing access to server features:
+
+```rust
+pub struct Context {
+    // Server state and APIs
+}
+```
+
+Source: `pumpkin/src/plugin/api/context.rs`
+
+## Event System
+
+Plugins can listen to and handle server events.
+
+### Event Handler Trait
+
+```rust
+pub trait EventHandler<E: Payload>: Send + Sync {
+    fn handle<'a>(&'a self, _server: &'a Arc<Server>, _event: &'a E) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+    
+    fn handle_blocking<'a>(
+        &'a self,
+        _server: &'a Arc<Server>,
+        _event: &'a mut E,
+    ) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+}
+```
+
+Source: `pumpkin/src/plugin/mod.rs:66-86`
+
+### Event Types
+
+Two types of events:
+
+- **Non-blocking Events**: Read-only event data
+- **Blocking Events**: Can modify event data or cancel
+
+### Event Priorities
+
+```rust
+pub enum EventPriority {
+    Lowest,
+    Low,
+    Normal,
+    High,
+    Highest,
+    Monitor,  // Read-only, runs last
+}
+```
+
+Higher priority handlers execute first (except Monitor).
+
+### Registering Event Handlers
+
+```rust
+impl Plugin for MyPlugin {
+    fn on_load(&mut self, server: Arc<Context>) -> PluginFuture<'_, Result<(), String>> {
+        Box::pin(async move {
+            server.register_event_handler(
+                MyEventHandler,
+                EventPriority::Normal,
+                false // not blocking
+            ).await;
+            Ok(())
+        })
+    }
+}
+```
+
+## Available Events
+
+Pumpkin provides events for various gameplay aspects.
+
+### Block Events
+
+#### BlockBreakEvent
+Fired when a player breaks a block.
+
+```rust
+pub struct BlockBreakEvent {
+    pub player: Arc<Player>,
+    pub block_pos: BlockPos,
+    pub block: &'static Block,
+    pub cancelled: bool,
+}
+```
+
+Source: `pumpkin/src/plugin/api/events/block/block_break.rs`
+
+#### BlockPlaceEvent
+Fired when a player places a block.
+
+```rust
+pub struct BlockPlaceEvent {
+    pub player: Arc<Player>,
+    pub block_pos: BlockPos,
+    pub block: &'static Block,
+    pub cancelled: bool,
+}
+```
+
+Source: `pumpkin/src/plugin/api/events/block/block_place.rs`
+
+#### BlockBurnEvent
+Fired when a block is destroyed by fire.
+
+Source: `pumpkin/src/plugin/api/events/block/block_burn.rs`
+
+#### BlockCanBuildEvent
+Fired to check if a block can be built at a location.
+
+Source: `pumpkin/src/plugin/api/events/block/block_can_build.rs`
+
+#### BlockGrowEvent
+Fired when a block grows naturally (crops, plants).
+
+Source: `pumpkin/src/plugin/api/events/block/block_grow.rs`
+
+### Player Events
+
+Player-related events include:
+- Player join/quit
+- Player chat
+- Player movement
+- Player interactions
+
+### Entity Events
+
+Entity events cover:
+- Entity spawn/despawn
+- Entity damage
+- Entity death
+- Entity target change
+
+### World Events
+
+World events for:
+- Chunk load/unload
+- World save
+- Time change
+- Weather change
+
+Source: `pumpkin/src/plugin/api/events/`
+
+## Plugin Loading
+
+Plugins are loaded from shared libraries (.so, .dll, .dylib).
+
+### Native Plugin Loader
+
+```rust
+pub struct NativePluginLoader {
+    // Dynamic library loading
+}
+```
+
+Source: `pumpkin/src/plugin/loader/native.rs`
+
+### Loading Process
+
+1. **Discovery**: Scan plugins directory
+2. **Validation**: Check API version compatibility
+3. **Loading**: Load shared library
+4. **Initialization**: Call `on_load` hook
+5. **Registration**: Register event handlers
+
+### Plugin States
+
+```rust
+pub enum PluginState {
+    Unloaded,
+    Loading,
+    Loaded,
+    Failed(String),
+}
+```
+
+Source: `pumpkin/src/plugin/mod.rs:150`
+
+## Plugin Management
+
+Manage plugins at runtime:
+
+### List Plugins
+
+```
+/plugins
+```
+
+Shows all loaded plugins with versions.
+
+Source: `pumpkin/src/command/commands/plugins.rs`
+
+### Plugin Commands
+
+```
+/plugin <name> enable
+/plugin <name> disable
+/plugin <name> reload
+/plugin <name> info
+```
+
+Source: `pumpkin/src/command/commands/plugin.rs`
+
+## Plugin Manager
+
+Central plugin management:
+
+```rust
+pub struct PluginManager {
+    plugins: Arc<RwLock<HashMap<String, LoadedPlugin>>>,
+    event_handlers: Arc<RwLock<HandlerMap>>,
+}
+```
+
+Source: `pumpkin/src/plugin/mod.rs:146-148`
+
+Features:
+- Load/unload plugins
+- Event handler registration
+- Plugin dependency resolution
+- Hot-reload support
+
+## Error Handling
+
+```rust
+pub enum LoaderError {
+    LibraryLoadError(String),
+    SymbolNotFound(String),
+    ApiVersionMismatch { expected: u32, found: u32 },
+    InitializationFailed(String),
+}
+```
+
+Source: `pumpkin/src/plugin/loader/`
+
+Proper error handling ensures:
+- Graceful plugin failures
+- Server stability
+- Debug information
+
+## Best Practices
+
+### Thread Safety
+
+All plugin code must be thread-safe:
+- Use `Arc` for shared state
+- Prefer `RwLock` over `Mutex` for read-heavy data
+- Avoid blocking operations in event handlers
+
+### Async Operations
+
+Plugin hooks are async:
+```rust
+fn on_load(&mut self, server: Arc<Context>) -> PluginFuture<'_, Result<(), String>>
+```
+
+Use `Box::pin(async move { ... })` for async code.
+
+### Resource Cleanup
+
+Always clean up in `on_unload`:
+- Unregister event handlers
+- Close file handles
+- Cancel background tasks
+- Free allocated resources
+
+### Versioning
+
+Follow semantic versioning:
+- **Major**: Breaking API changes
+- **Minor**: New features, backwards compatible
+- **Patch**: Bug fixes
+
+## Security Considerations
+
+- Plugins run with full server privileges
+- Validate all user input in event handlers
+- Avoid loading untrusted plugins
+- Review plugin source code before use
+- Use permission checks for sensitive operations
+
+## Performance Tips
+
+- Cache frequently accessed data
+- Use event priorities to control execution order
+- Avoid heavy computation in high-frequency events
+- Profile plugin performance impact
+- Consider async tasks for long-running operations
+
+## Plugin Development Resources
+
+- Review built-in command implementations for patterns
+- Study entity AI goals for behavior examples  
+- Examine block event handlers for world interaction
+- Use Pumpkin's existing APIs before reimplementing
+
+Source code: `pumpkin/src/plugin/`

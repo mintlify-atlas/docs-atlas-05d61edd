@@ -1,0 +1,393 @@
+---
+title: Building from Source
+description: Set up your development environment and build Pumpkin from source
+---
+
+This guide will help you set up a development environment and build Pumpkin from source.
+
+## Prerequisites
+
+### Required Tools
+
+#### Rust Toolchain
+
+Pumpkin requires **Rust 1.89** or later:
+
+```bash
+# Install Rust using rustup
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Verify installation
+rustc --version
+cargo --version
+```
+
+Visit [rust-lang.org](https://www.rust-lang.org/) for alternative installation methods.
+
+#### Git
+
+Required to clone the repository:
+
+```bash
+# Verify git installation
+git --version
+```
+
+### Optional Tools
+
+#### Clippy (Recommended)
+
+Linter for catching common mistakes:
+
+```bash
+rustup component add clippy
+```
+
+#### cargo-watch (Recommended)
+
+Auto-rebuild on file changes:
+
+```bash
+cargo install cargo-watch
+```
+
+#### typos (Recommended)
+
+Detect and fix typos automatically:
+
+```bash
+cargo install typos-cli
+```
+
+## Getting the Source
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/Pumpkin-MC/Pumpkin.git
+cd Pumpkin
+```
+
+### Repository Structure
+
+```
+Pumpkin/
+├── pumpkin/              # Main server crate
+├── pumpkin-protocol/     # Protocol implementation
+├── pumpkin-world/        # World/chunk management
+├── pumpkin-config/       # Configuration handling
+├── pumpkin-data/         # Generated data/registries
+├── pumpkin-inventory/    # Inventory system
+├── pumpkin-util/         # Shared utilities
+├── pumpkin-macros/       # Procedural macros
+├── pumpkin-api-macros/   # Plugin API macros
+├── pumpkin-nbt/          # NBT parsing (git submodule)
+├── Cargo.toml            # Workspace configuration
+└── CONTRIBUTING.md       # Contribution guidelines
+```
+
+## Building Pumpkin
+
+### Development Build
+
+Fastest compilation, includes debug symbols:
+
+```bash
+cargo build
+```
+
+The binary will be at `target/debug/pumpkin`.
+
+### Release Build
+
+Optimized for performance:
+
+```bash
+cargo build --release
+```
+
+The binary will be at `target/release/pumpkin`.
+
+<Note>
+Release builds take significantly longer but produce much faster executables.
+The release profile uses LTO (Link-Time Optimization) and single codegen unit for maximum performance.
+</Note>
+
+### Running the Server
+
+After building:
+
+```bash
+# Development build
+./target/debug/pumpkin
+
+# Release build
+./target/release/pumpkin
+```
+
+Or use `cargo run`:
+
+```bash
+# Development
+cargo run
+
+# Release
+cargo run --release
+```
+
+## Development Workflow
+
+### Running Tests
+
+Run all unit tests:
+
+```bash
+cargo test
+```
+
+Run tests for specific crate:
+
+```bash
+cargo test -p pumpkin-protocol
+cargo test -p pumpkin-world
+```
+
+### Linting with Clippy
+
+Pumpkin uses strict Clippy settings. Run before submitting PRs:
+
+```bash
+# Check all targets
+cargo clippy --all-targets
+
+# Auto-fix some issues
+cargo clippy --all-targets --fix
+```
+
+<Warning>
+All Clippy warnings must be resolved before PRs can be merged. The CI will fail if any warnings exist.
+</Warning>
+
+### Code Formatting
+
+Format code with rustfmt:
+
+```bash
+cargo fmt
+
+# Check formatting without applying
+cargo fmt -- --check
+```
+
+### Auto-rebuild on Changes
+
+Use `cargo-watch` for automatic rebuilds:
+
+```bash
+# Watch and run
+cargo watch -x run
+
+# Watch and test
+cargo watch -x test
+
+# Watch and check (faster than build)
+cargo watch -x check
+```
+
+## Advanced Build Options
+
+### Build Profiles
+
+Pumpkin defines several build profiles:
+
+#### Release Profile
+
+```toml
+[profile.release]
+lto = true              # Link-time optimization
+strip = "debuginfo"     # Remove debug info
+codegen-units = 1       # Single codegen unit (slower build, faster runtime)
+```
+
+#### Profiling Profile
+
+For performance profiling:
+
+```bash
+cargo build --profile profiling
+```
+
+This inherits release optimizations but keeps debug symbols for profilers.
+
+#### Bench Profile
+
+```bash
+cargo bench
+```
+
+Runs benchmarks with debug info enabled.
+
+### Feature Flags
+
+Pumpkin supports optional features:
+
+#### Console Subscriber (Tokio Debugging)
+
+Enables tokio-console for async runtime debugging:
+
+```bash
+cargo build --features console-subscriber
+```
+
+#### Tokio Task Dump
+
+Enables task dumping for debugging:
+
+```bash
+cargo build --features tokio_taskdump
+```
+
+### Building Specific Crates
+
+Build individual workspace members:
+
+```bash
+# Build just the protocol crate
+cargo build -p pumpkin-protocol
+
+# Build world crate with all features
+cargo build -p pumpkin-world --all-features
+```
+
+## Running Benchmarks
+
+Pumpkin includes benchmarks using Criterion:
+
+```bash
+# Run all benchmarks
+cargo bench
+
+# Run specific benchmark
+cargo bench --bench chunk
+cargo bench --bench chunk_gen
+cargo bench --bench noise_router
+```
+
+Benchmark results are saved in `target/criterion/`.
+
+## Troubleshooting
+
+### Build Failures
+
+#### Rust Version Too Old
+
+```bash
+# Update Rust to latest stable
+rustup update stable
+
+# Or install specific version
+rustup install 1.89
+rustup default 1.89
+```
+
+#### Clippy Warnings Blocking Build
+
+If clippy warnings prevent compilation:
+
+```bash
+# Build without clippy checks
+cargo build
+
+# Then fix warnings
+cargo clippy --all-targets --fix
+```
+
+#### Out of Memory
+
+Release builds with LTO can use significant memory:
+
+```bash
+# Reduce parallel jobs
+cargo build --release -j 2
+
+# Or disable LTO temporarily
+cargo build --release --config profile.release.lto=false
+```
+
+### Cleaning Build Artifacts
+
+Remove all build artifacts:
+
+```bash
+cargo clean
+```
+
+Clean and rebuild:
+
+```bash
+cargo clean && cargo build --release
+```
+
+## Development Tools
+
+### VS Code Setup
+
+Recommended extensions:
+- **rust-analyzer**: Rust language server
+- **CodeLLDB**: Debugging support
+- **Even Better TOML**: TOML syntax highlighting
+
+### IntelliJ IDEA / CLion Setup
+
+Install the Rust plugin from JetBrains marketplace.
+
+## Platform-Specific Notes
+
+### Linux
+
+No special requirements. All dependencies are in Cargo.toml.
+
+### macOS
+
+No special requirements. Ensure Xcode Command Line Tools are installed:
+
+```bash
+xcode-select --install
+```
+
+### Windows
+
+Install Visual Studio Build Tools or Visual Studio with C++ development tools.
+
+<Warning>
+WASI targets are not supported and will fail at compile time.
+</Warning>
+
+## Performance Testing
+
+Before submitting performance-sensitive changes:
+
+1. **Profile your changes**:
+   ```bash
+   cargo build --profile profiling
+   # Use your preferred profiler (perf, instruments, etc.)
+   ```
+
+2. **Run benchmarks**:
+   ```bash
+   # Baseline before changes
+   git stash
+   cargo bench
+   
+   # After changes
+   git stash pop
+   cargo bench
+   ```
+
+3. **Compare results** in `target/criterion/`
+
+## Next Steps
+
+- [System Architecture](/development/architecture) - Understand Pumpkin's design
+- [Contributing Guidelines](/development/contributing) - Submit your changes
+- [Quick Start](/quickstart) - Run your built server

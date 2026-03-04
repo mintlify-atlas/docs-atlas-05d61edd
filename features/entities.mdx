@@ -1,0 +1,372 @@
+---
+title: Entity System
+description: Comprehensive entity management, AI, and gameplay mechanics
+---
+
+Pumpkin implements a robust entity system supporting players, mobs, items, projectiles, and vehicles with full AI capabilities.
+
+## Entity Base
+
+All entities inherit from the `EntityBase` trait providing core functionality.
+
+### Entity Lifecycle
+
+```rust
+pub trait EntityBase: Send + Sync + NBTStorage {
+    fn tick<'a>(
+        &'a self,
+        caller: Arc<dyn EntityBase>,
+        server: &'a Server,
+    ) -> EntityBaseFuture<'a, ()>;
+    
+    fn init_data_tracker(&self) -> EntityBaseFuture<'_, ()>;
+    
+    fn teleport(
+        self: Arc<Self>,
+        position: Vector3<f64>,
+        yaw: Option<f32>,
+        pitch: Option<f32>,
+        world: Arc<World>,
+    ) -> TeleportFuture;
+}
+```
+
+Source: `pumpkin/src/entity/mod.rs:91-148`
+
+### Core Entity Properties
+
+- **Position & Rotation**: Atomic position tracking
+- **Velocity**: Physics-based movement
+- **Bounding Box**: Collision detection
+- **Metadata**: Synced entity data
+- **Age**: Tick counter for entity lifecycle
+
+### Entity Types
+
+Pumpkin supports these entity categories:
+
+#### Living Entities
+
+```rust
+pub struct LivingEntity {
+    pub entity: Arc<Entity>,
+    // Health, armor, attributes
+}
+```
+
+Includes:
+- **Players**: Human-controlled entities
+- **Mobs**: Hostile and neutral creatures
+- **Passive Mobs**: Animals and friendly creatures
+
+Source: `pumpkin/src/entity/living.rs`
+
+#### Projectiles
+
+- **Arrows**: Shot from bows/crossbows
+- **Snowballs**: Throwable items
+- **Eggs**: Thrown eggs
+- **Fireballs**: Ghast/blaze projectiles
+- **Wind Charges**: Breeze attacks
+- **Firework Rockets**: Elytra propulsion
+
+Source: `pumpkin/src/entity/projectile/`
+
+#### Vehicles
+
+- **Boats**: Water and chest boats
+- **Minecarts**: Rail transport
+
+Source: `pumpkin/src/entity/vehicle/`
+
+#### Other Entities
+
+- **Items**: Dropped items (`ItemEntity`)
+- **Experience Orbs**: XP drops
+- **TNT**: Primed explosives
+- **Falling Blocks**: Sand, gravel physics
+- **Armor Stands**: Display entities
+- **Paintings**: Decorative art
+- **End Crystals**: End dimension entities
+
+Source: `pumpkin/src/entity/`
+
+## Entity Spawning
+
+Spawn entities using the world interface:
+
+```rust
+world.spawn_from_type(
+    entity_type: &'static EntityType,
+    position: Vector3<f64>,
+).await;
+```
+
+Example entity types:
+- `EntityType::Zombie`
+- `EntityType::Skeleton`
+- `EntityType::Cow`
+- `EntityType::Arrow`
+
+Source: `pumpkin-world/src/world.rs:88-92`
+
+## Entity Metadata
+
+Pumpkin uses tracked data for client synchronization:
+
+```rust
+pub struct Metadata {
+    pub index: u8,
+    pub metadata_type: MetaDataType,
+    pub value: T,
+}
+```
+
+Common tracked data:
+- `DATA_BABY`: Baby entity flag
+- `DATA_CUSTOM_NAME`: Entity display name
+- `DATA_HEALTH`: Current health
+- `DATA_ARMOR`: Armor value
+
+Source: `pumpkin/src/entity/mod.rs:122-128`
+
+## Mob AI System
+
+Pumpkin features a sophisticated AI system for mob behavior.
+
+### Goal System
+
+Mobs use prioritized goals:
+
+```rust
+pub struct GoalSelector {
+    // Manages and executes AI goals
+}
+```
+
+Available goals:
+
+#### Movement Goals
+- `WanderAround`: Random exploration
+- `FollowParent`: Baby animals follow adults
+- `FollowOwner`: Tamed animals follow owner
+- `EscapeDanger`: Flee from threats
+- `Swim`: Prevent drowning
+
+Source: `pumpkin/src/entity/ai/goal/`
+
+#### Combat Goals
+- `MeleeAttack`: Close-range combat
+- `ZombieAttack`: Zombie-specific attack
+- `ChasePlayer`: Enderman chase behavior
+- `Revenge`: Target attackers
+- `ActiveTarget`: Hunt specific entities
+
+Source: `pumpkin/src/entity/ai/goal/`
+
+#### Interaction Goals
+- `LookAtEntity`: Face nearby entities
+- `LookAround`: Ambient head movement
+- `Tempt`: Follow player holding food
+- `Beg`: Wolf begging behavior
+- `Breed`: Animal breeding
+
+Source: `pumpkin/src/entity/ai/goal/`
+
+#### Special Goals
+- `CreeperIgnite`: Creeper explosion
+- `EatGrass`: Sheep grazing
+- `PickUpBlock`: Enderman block pickup
+- `PlaceBlock`: Enderman block placement
+- `DestroyEgg`: Zombie turtle egg breaking
+
+Source: `pumpkin/src/entity/ai/goal/`
+
+### Pathfinding
+
+Advanced pathfinding for mob navigation:
+
+```rust
+pub struct WalkNodeEvaluator {
+    // Evaluates path nodes for walking entities
+}
+
+pub struct PathfindingContext {
+    // Context for pathfinding operations
+}
+```
+
+Source: `pumpkin/src/entity/ai/pathfinder/`
+
+Features:
+- **A* Algorithm**: Efficient pathfinding
+- **Path Caching**: Reuse computed paths
+- **Block Awareness**: Navigate around obstacles
+- **Jump Detection**: Navigate elevation changes
+
+## Mob Types
+
+### Hostile Mobs
+
+#### Zombies
+- **Zombie**: Standard undead
+- **Zombie Villager**: Curable zombie
+- **Husk**: Desert variant
+- **Drowned**: Underwater zombie
+
+Source: `pumpkin/src/entity/mob/zombie/`
+
+#### Skeletons
+- **Skeleton**: Bow-wielding undead
+- **Wither Skeleton**: Nether variant
+- **Stray**: Snow biome skeleton
+- **Bogged**: Swamp skeleton
+- **Parched**: Desert skeleton
+
+Source: `pumpkin/src/entity/mob/skeleton/`
+
+#### Other Hostiles
+- **Creeper**: Explosive mob
+- **Enderman**: Teleporting mob
+- **Silverfish**: Small insect
+- **Bat**: Ambient cave mob
+
+Source: `pumpkin/src/entity/mob/`
+
+### Passive Mobs
+
+- **Cow**: Milk and beef source
+- **Pig**: Rideable animal
+- **Sheep**: Wool provider
+- **Chicken**: Egg layer
+- **Cat**: Tamed companion
+- **Wolf**: Tamed protector
+
+Source: `pumpkin/src/entity/passive/`
+
+### Utility Mobs
+
+- **Iron Golem**: Village protector
+- **Snow Golem**: Snowball thrower
+
+Source: `pumpkin/src/entity/passive/`
+
+### Boss Mobs
+
+- **Wither**: Three-headed boss
+
+Source: `pumpkin/src/entity/boss/`
+
+## Player Entity
+
+Players are special living entities with additional features:
+
+```rust
+pub struct Player {
+    pub living_entity: Arc<LivingEntity>,
+    pub gameprofile: GameProfile,
+    pub config: ArcSwap<PlayerConfig>,
+    pub world: Arc<World>,
+    // Inventory, abilities, experience, etc.
+}
+```
+
+Source: `pumpkin/src/entity/player.rs`
+
+Player-specific features:
+- **Gamemode**: Survival, Creative, Adventure, Spectator
+- **Inventory**: Item storage and hotbar
+- **Abilities**: Flight, invulnerability
+- **Experience**: Levels and points
+- **Hunger**: Food and saturation
+- **Attributes**: Health, speed, reach distance
+
+## Entity Attributes
+
+Customizable entity properties:
+
+```rust
+pub struct Attributes {
+    pub max_health: f64,
+    pub movement_speed: f64,
+    pub attack_damage: f64,
+    pub armor: f64,
+    pub knockback_resistance: f64,
+}
+```
+
+Source: `pumpkin/src/entity/attributes.rs`
+
+Attributes affect:
+- Combat effectiveness
+- Movement capabilities
+- Survival stats
+
+## Entity Effects
+
+Status effects modify entity behavior:
+
+- **Beneficial**: Regeneration, Speed, Strength
+- **Harmful**: Poison, Weakness, Slowness
+- **Mixed**: Invisibility, Glowing
+
+Source: `pumpkin/src/entity/effect/`
+
+## Entity Combat
+
+Combat system with damage types:
+
+```rust
+pub enum DamageType {
+    Generic,
+    Player,
+    Mob,
+    Projectile,
+    Explosion,
+    Fire,
+    Fall,
+    // ... more types
+}
+```
+
+Damage mechanics:
+- Armor reduction
+- Enchantment modifiers
+- Invulnerability ticks
+- Knockback calculation
+
+Source: `pumpkin/src/entity/combat.rs`
+
+## Projectile Deflection
+
+Certain entities can deflect projectiles:
+
+```rust
+pub trait ProjectileDeflection {
+    fn can_deflect(&self) -> bool;
+    fn deflect(&self, projectile: Arc<dyn EntityBase>);
+}
+```
+
+Source: `pumpkin/src/entity/projectile_deflection.rs`
+
+## Network Synchronization
+
+Entities are synchronized to clients via packets:
+
+- `CSpawnEntity`: Initial entity spawn
+- `CUpdateEntityPos`: Position updates
+- `CUpdateEntityPosRot`: Position and rotation
+- `CUpdateEntityRot`: Rotation only
+- `CSetEntityMetadata`: Metadata changes
+- `CSetPassengers`: Vehicle mounting
+- `CTeleportEntity`: Teleportation
+
+Source: `pumpkin-protocol/src/java/client/play/`
+
+## Performance Optimizations
+
+- **Atomic Operations**: Lock-free position/rotation updates
+- **Async Ticking**: Non-blocking entity updates
+- **Spatial Partitioning**: Efficient entity queries
+- **Packet Batching**: Combine nearby entity updates
