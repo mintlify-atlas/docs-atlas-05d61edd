@@ -1,0 +1,128 @@
+{
+  "projectType": "general",
+  "projectName": "Pumpkin",
+  "projectDescription": "A fast, efficient Minecraft server built entirely in Rust with support for both Java and Bedrock editions.",
+  "theme": "aspen",
+  "primaryColor": "#e0904a",
+  "lightColor": "#853c08",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/overview",
+              "configuration/basic",
+              "configuration/advanced",
+              "configuration/permissions"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/protocol",
+              "features/world-management",
+              "features/entities",
+              "features/commands",
+              "features/plugins"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/pterodactyl",
+              "deployment/performance"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/architecture",
+              "development/building",
+              "development/contributing"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Plugin API",
+        "groups": [
+          {
+            "group": "Plugin Development",
+            "pages": [
+              "plugins/introduction",
+              "plugins/getting-started",
+              "plugins/lifecycle",
+              "plugins/events"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "api/context",
+              "api/event-handlers",
+              "api/server",
+              "api/world",
+              "api/entities",
+              "api/commands"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Protocol",
+        "groups": [
+          {
+            "group": "Network Protocol",
+            "pages": [
+              "protocol/overview",
+              "protocol/java-edition",
+              "protocol/bedrock-edition",
+              "protocol/encryption",
+              "protocol/compression"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-threaded performance with async Rust",
+    "Java Edition and Bedrock Edition support",
+    "Vanilla world loading and generation",
+    "Plugin system for extensibility",
+    "Configuration via TOML files",
+    "Command system with 50+ built-in commands",
+    "Entity management and spawning",
+    "World borders, lighting, and liquid physics",
+    "RCON and Query protocol support",
+    "Proxy support (BungeeCord, Velocity)"
+  ],
+  "publicApiSurface": [
+    "Plugin trait and lifecycle hooks",
+    "Event system (EventHandler, EventPriority)",
+    "Context API for plugin interactions",
+    "Server API for server management",
+    "Command registration and execution",
+    "World and chunk access",
+    "Entity API",
+    "Block and item APIs",
+    "Permission system",
+    "Configuration loading (BasicConfiguration, AdvancedConfiguration)",
+    "Network protocol packets (pumpkin-protocol)",
+    "NBT data handling (pumpkin-nbt)",
+    "World generation and management (pumpkin-world)"
+  ]
+}
